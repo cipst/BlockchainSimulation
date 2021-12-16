@@ -1,6 +1,8 @@
-#include <stdio.h>
-#include <unistd.h>
+#include "master.h"
 
-int main() {
-    printf("Ciao %d!\n", getpid());
+int main(int argc, char** argv) {
+    int bilancio;
+    printf("\t%d Termino...\n", getpid());
+
+    exit(EXIT_SUCCESS);
 }
