@@ -52,6 +52,12 @@ typedef struct {
     block block[SO_REGISTRY_SIZE];
 } ledger;
 
+/* »»»»»»»»»» Processi (utente/nodo) »»»»»»»»»» */
+typedef struct {
+    pid_t pid;
+    int balance;
+} process;
+
 /* Metodo che gestisce la stampa degli errori */
 void error(char* txt) {
     /**
@@ -61,8 +67,7 @@ void error(char* txt) {
 	 **/
 
     char aux[] = RED "Error" WHITE;
-    printf("[ %s ] %d - %s\n", aux, getpid(), txt);
-    perror("");
+    printf("[ %sERROR%s ] %s%d%s - %s%s%s%s\n", RED, WHITE, BLUE, getpid(), RESET, RED, BOLD, txt, WHITE);
     exit(EXIT_FAILURE);
 }
 
@@ -116,21 +121,32 @@ int removeSem(int semId, int semNum) {
     return semctl(semId, semNum, IPC_RMID, arg);
 }
 
+/* »»»»»»»»»» Stampa Transazione »»»»»»»»»» */
+void printTransaction(transaction t) {
+    printf("\t\t%s#----Transaction----%s\n", YELLOW, WHITE);
+    printf("\t\t  %sTimestamp%s: %lu\n", BLUE, WHITE, t.timestamp);
+    printf("\t\t  %sSender%s: %d\n", BLUE, WHITE, t.sender);
+    printf("\t\t  %sReceiver%s: %d\n", BLUE, WHITE, t.receiver);
+    printf("\t\t  %sQuantity%s: %d\n", BLUE, WHITE, t.quantity);
+    printf("\t\t  %sReward%s: %u\n", BLUE, WHITE, t.reward);
+}
+
+/* »»»»»»»»»» Stampa Blocco »»»»»»»»»» */
+void printBlock(block b) {
+    int j;
+    printf("\t%s#------Block------%s\n", CYAN, WHITE);
+    printf("\t  %sSize%s: %d\n", GREEN, WHITE, b.size);
+    for (j = 0; j < b.size; ++j) {
+        printTransaction(b.transaction[j]);
+    }
+}
+
 /* »»»»»»»»»» Stampa Libro Mastro »»»»»»»»»» */
 void printLedger(ledger* l) {
-    int i, j;
+    int i;
     printf("\n%s»»»»»»»» Libro Mastro »»»»»»»»%s\n", MAGENTA, WHITE);
     printf("  %sSize%s: %d\n", GREEN, WHITE, l->size);
     for (i = 0; i < l->size; ++i) {
-        printf("\t%s#------Block %d------%s\n", CYAN, i, WHITE);
-        printf("\t  %sSize%s: %d\n", GREEN, WHITE, l->block[i].size);
-        for (j = 0; j < l->block[i].size; ++j) {
-            printf("\t\t%s#----Transaction %d----%s\n", YELLOW, j, WHITE);
-            printf("\t\t  %sTimestamp%s: %lu\n", BLUE, WHITE, l->block[i].transaction[j].timestamp);
-            printf("\t\t  %sSender%s: %d\n", BLUE, WHITE, l->block[i].transaction[j].sender);
-            printf("\t\t  %sReceiver%s: %d\n", BLUE, WHITE, l->block[i].transaction[j].receiver);
-            printf("\t\t  %sQuantity%s: %d\n", BLUE, WHITE, l->block[i].transaction[j].quantity);
-            printf("\t\t  %sReward%s: %u\n", BLUE, WHITE, l->block[i].transaction[j].reward);
-        }
+        printBlock(l->block[i]);
     }
 }
