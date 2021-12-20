@@ -11,7 +11,7 @@ int SO_NODES_NUM;            /* numero di processi nodo che elaborano, a pagamen
 int SO_REWARD;               /* la percentuale di reward pagata da ogni utente per il processamento di una transazione */
 long SO_MIN_TRANS_GEN_NSEC;  /* minimo valore del tempo (espresso in nanosecondi) che trascorre fra la generazione di una transazione e la seguente da parte di un utente */
 long SO_MAX_TRANS_GEN_NSEC;  /* massimo valore del tempo (espresso in nanosecondi) che trascorre fra la generazione di una transazione e la seguente da parte di un utente */
-int SO_RETRY;                /* numero di tentativi che un processo utente ha per inviare una transazione */
+int SO_RETRY;                /* numero massimo di fallimenti consecutivi nella generazione di transazioni dopo cui un processo utente termina */
 int SO_TP_SIZE;              /* numero massimo di transazioni nella transaction pool dei processi nodo */
 long SO_MIN_TRANS_PROC_NSEC; /* minimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
 long SO_MAX_TRANS_PROC_NSEC; /* massimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
@@ -23,14 +23,13 @@ int SO_HOPS;                 /* IMPORTANT numero massimo di salti massimo che un
 /* »»»»»»»»»» Definizione Metodi »»»»»»»»»» */
 
 void hdl(int, siginfo_t*, void*);
-void killall(int);
-void print_ipc_status();
-void print_stats();
+void killAll(int);
+void printIpcStatus();
+void printStats();
 void readConfigFile(char*);
 void printConfigVal();
 
 struct sigaction act;
-sigset_t sigMask; /* inizializzo la maschera dei segnali da ignorare */
 struct timespec tp;
 
 int semId;              /* ftok(..., 's') => 's': semaphore */
@@ -49,7 +48,7 @@ int totalNodes = 0;
 
 pid_t master_pid;
 char* info[3] = {"utente", "Ciao", NULL};
-int i, j;
+int i, j, stop = 0;
 pid_t pid;
 
 int main(int argc, char** argv) {
@@ -69,6 +68,7 @@ int main(int argc, char** argv) {
     /* Il campo SA_SIGINFO flag indica a sigaction() di usare il capo sa_sigaction, e non sa_handler. */
     act.sa_flags = SA_SIGINFO;
 
+    /* SEGNALI */
     if (sigaction(SIGINT, &act, NULL) < 0) {
         perror(RED "Sigaction: Failed to assign SIGINT to custom handler" WHITE);
         exit(EXIT_FAILURE);
@@ -90,11 +90,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    if (sigemptyset(&sigMask) == -1)
-        error("Error in sigMask");
-    if (sigaddset(&sigMask, SIGALRM) == -1)
-        error("Error adding SIGALRM to sigMask");
-
+    /* SEMAFORI */
     if ((semId = semget(ftok("./utils/private-key", 's'), 3, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
         perror(RED "Semaphore pool creation failure" WHITE);
         exit(EXIT_FAILURE);
@@ -115,6 +111,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
+    /* MEMORIE CONDIVISE */
     if ((shmLedgerId = shmget(ftok("./utils/private-key", 'l'), sizeof(ledger), IPC_CREAT | IPC_EXCL | 0644)) < 0) {
         perror(RED "Shared Memory creation failure [LEDGER]" WHITE);
         exit(EXIT_FAILURE);
@@ -167,31 +164,83 @@ int main(int argc, char** argv) {
     *activeProcess = 0;
     releaseSem(semId, 2);
 
-    print_ipc_status(); /* stato degli oggetti IPC */
+    printIpcStatus(); /* stato degli oggetti IPC */
 
     master_pid = getpid();
 
-    mastro->size = 1;                     /* inizializzo il libro mastro a 1 => un blocco contenente le transazione per processi utente */
-    mastro->block[0].size = SO_USERS_NUM; /* nel primo blocco ci sono SO_USERS_NUM transazioni */
+    reserveSem(semId, 0);
 
-    for (i = 0; i < SO_USERS_NUM; ++i) {
-        clock_gettime(CLOCK_MONOTONIC, &tp);
-        mastro->block[0].transaction[i].timestamp = (tp.tv_sec * 1000000000) + tp.tv_nsec;
-        mastro->block[0].transaction[i].quantity = SO_BUDGET_INIT;
-        mastro->block[0].transaction[i].sender = specialSender;
-        mastro->block[0].transaction[i].receiver = i;
-        mastro->block[0].transaction[i].reward = SO_REWARD;
+    for (i = 0; i < SO_USERS_NUM; ++i) { /* genero SO_USERS_NUM processi utente */
+        switch (fork()) {
+            case -1:
+                perror(RED "Fork: Failed to create a child process" WHITE);
+                exit(EXIT_FAILURE);
+                break;
+
+            case 0: {
+                char usersNum[12];
+                char nodesNum[12];
+                char budgetInit[12];
+                char reward[12];
+                char minTransGen[12];
+                char maxTransGen[12];
+                char retry[12];
+                char* arg[9]; /* salvo le informazioni da passare al processo nodo */
+
+                sprintf(usersNum, "%d", SO_USERS_NUM);
+                sprintf(nodesNum, "%d", SO_NODES_NUM);
+                sprintf(budgetInit, "%d", SO_BUDGET_INIT);
+                sprintf(reward, "%d", SO_REWARD);
+                sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
+                sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
+                sprintf(retry, "%d", SO_RETRY);
+
+                arg[0] = "./utente";
+                arg[1] = usersNum;
+                arg[2] = nodesNum;
+                arg[3] = budgetInit;
+                arg[4] = reward;
+                arg[5] = minTransGen;
+                arg[6] = maxTransGen;
+                arg[7] = retry;
+                arg[8] = NULL;
+
+                (users + i)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degl utenti */
+                (users + i)->balance = 0;    /* inizializzo il bilancio a 0  */
+
+                if (execv("./utente", arg) < 0)
+                    perror(RED "Failed to launch execv [UTENTE]" WHITE);
+
+                break;
+            }
+
+            default:
+                break;
+        }
     }
 
-    /* alarm(1); */
+    printf("[ %smaster%s ] All process generated. \n", CYAN, WHITE);
+    sleep(1);
 
-    printLedger(mastro);
-
-    while (1) {
-        fflush(stdout);
-        printf("#");
-        sleep(1);
+    while (stop == 0) { /* aspetto finchè non trovo SO_USERS_NUM (+ SO_NODES_NUM) processi attivi */
+        reserveSem(semId, 2);
+        if (*activeProcess == SO_USERS_NUM)
+            stop++;
+        releaseSem(semId, 2);
     }
+
+#ifdef DEBUG
+    reserveSem(semId, 2);
+    printf("activeProcess after while: %d\n", *activeProcess);
+    releaseSem(semId, 2);
+#endif
+
+    printf("[ %smaster%s ] All process are starting...\n", CYAN, WHITE);
+    sleep(1);
+
+    releaseSem(semId, 0);
+
+    printf("CIAO\n");
 }
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
@@ -213,9 +262,9 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             printf("%ld\n", SO_SIM_SEC);
 
             printf("\n%sSO_SIM_SEC%s expired - Terminating simulation...", YELLOW, WHITE);
-            killall(SIGINT);
+            killAll(SIGINT);
 
-            print_stats();
+            printStats();
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -234,7 +283,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
                 kill(0, SIGINT);
                 sigaction(SIGINT, &act, NULL);
 
-                print_stats();
+                printStats();
                 shmdt(mastro);
                 shmdt(users);
                 shmdt(nodes);
@@ -252,7 +301,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
         case SIGSEGV:
             printf("\n[ %sSIGSEGV%s ] Simulation interrupted due to SIGSEGV\n", RED, WHITE);
-            killall(SIGINT);
+            killAll(SIGINT);
             exit(EXIT_FAILURE);
             break;
 
@@ -264,7 +313,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
     }
 }
 
-void killall(int sig) {
+void killAll(int sig) {
     /**
 	 *  Funzione che uccide tutti i processi in shared memory
 	 *  Invia il segnale passatogli come argomento a tutti i processi presenti nella shared memory;
@@ -285,7 +334,7 @@ void killall(int sig) {
     }
 }
 
-void print_ipc_status() {
+void printIpcStatus() {
     /**
 	 * 	Funzione utilizzata per stampare a video gli ID degli oggetti IPC
 	 * 		Parametri:
@@ -305,17 +354,21 @@ void print_ipc_status() {
     printf("\t[ %s ] shmActiveProcessId: %d\n\n", aux, shmActiveProcessId);
 }
 
-void print_stats() {
+void printStats() {
     /**
 	 * Questa è una funzione che stampa tutte le informazioni ritenute utili prima della terminazione del programma
 	 * 		Vengono stampate a video:
-	 * 			-	
+     *          -   Bilancio di ogni processo utente (compresi quelli terminati prematuramente)
+     *          -   Bilancio di ogni processo nodo
+     *          -   Numero di processi utente terminati prematuramente
+     *          -   Numero di blocchi nel libro mastro
+     *          -   Per ogni processo nodo, numero di transazioni ancora presenti nella transaction pool
 	 **/
 
-    char aux[] = MAGENTA "STATS" WHITE;
+    const char aux[] = MAGENTA "STATS" WHITE;
     printf("\n[ %s ] Some stats of the simulation\n", aux);
-    printf("\t[ %s ] Number of blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
     printf("\t[ %s ] Master PID: %d\n", aux, master_pid);
+    printf("\t[ %s ] Number of blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
 }
 
 /* legge dal percorso in argv[1], inizializza le variabili di configurazione e controlla che i valori siano corretti */

@@ -40,7 +40,7 @@ typedef struct {
     unsigned int reward;     /* denaro pagato dal sender al nodo che processa la transazione */
 } transaction;
 
-/* »»»»»»»»»» Blocco del libro mastro »»»»»»»»»» */
+/* »»»»»»»»»» Blocco »»»»»»»»»» */
 typedef struct {
     int size;
     transaction transaction[SO_BLOCK_SIZE];
