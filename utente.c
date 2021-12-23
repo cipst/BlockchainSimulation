@@ -2,9 +2,20 @@
 
 /* #define DEBUG */
 
+/* Gestore dei segnali */
 void hdl(int, siginfo_t*, void*);
-/* Calcola il bilancio delle transazioni presenti nel Libro Mastro */
+
+/** Calcola il bilancio delle transazioni presenti nel Libro Mastro 
+ * 
+ * @param l puntatore alla struttura Libro Mastro
+ * @return il bilancio (entrate/uscite) delle transazioni fatte dall'utente
+ */
 int balanceFromLedger(ledger*);
+
+/** Cerca l'offset che contiene le informazioni riguardanti l'attuale utente nella memoria condivisa 'users'
+ * 
+ * @return l'offset da 'users' se l'utente esiste, -1 se non esiste
+ */
 int whoAmI();
 
 struct sigaction act;
@@ -115,7 +126,7 @@ int main(int argc, char** argv) {
 
     /* Il semaforo 2 viene utilizzato per accedere in mutua esclusione all'area di shared memory per sincronizzarsi */
     reserveSem(semId, 2);
-    printf("Processi attivi: %d\n", *activeProcess);
+    printf("Processi attivi: %d\n", (*activeProcess) + 1);
     (*activeProcess)++;
     releaseSem(semId, 2);
 
@@ -131,11 +142,19 @@ int main(int argc, char** argv) {
 
     reserveSem(semId, 0); /* aspetto il via dal master */
 
+    /* cerco l'offset che contiene le informazioni riguardanti l'attuale utente nella memoria condivisa 'users' */
     if ((offset = whoAmI()) < 0) {
         printf("%sUser %d not found!%s\n", RED, getpid(), WHITE);
     }
 
     releaseSem(semId, 0);
+
+    printf("%d\n", getpid());
+    while (1) {
+        fflush(stdout);
+        printf("#");
+        sleep(1);
+    }
 
     printf("\t%d Termino...\n", getpid());
 
@@ -159,29 +178,39 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 	 *  	-	SIGINT
 	 *  	-	SIGTERM
 	 *  	-	SIGSEGV
+     *      -   SIGUSR1
 	 **/
+    switch (sig) {
+        case SIGINT:
+            releaseSem(semId, 0);
+            printf("QUI\n");
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeProcess);
+            exit(EXIT_SUCCESS);
 
-    if (sig == SIGINT) {
-        releaseSem(semId, 0);
-        shmdt(mastro);
-        shmdt(users);
-        shmdt(nodes);
-        shmdt(activeProcess);
-        exit(EXIT_SUCCESS);
-    } else if (sig == SIGTERM) {
-        releaseSem(semId, 0);
-        shmdt(mastro);
-        shmdt(users);
-        shmdt(nodes);
-        shmdt(activeProcess);
-        exit(EXIT_FAILURE);
-    } else if (sig == SIGSEGV) {
-        releaseSem(semId, 0);
-        shmdt(mastro);
-        shmdt(users);
-        shmdt(nodes);
-        shmdt(activeProcess);
-        error("SEGMENTATION VIOLATION [USER]");
+        case SIGTERM:
+            releaseSem(semId, 0);
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeProcess);
+            exit(EXIT_FAILURE);
+
+        case SIGSEGV:
+            releaseSem(semId, 0);
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeProcess);
+            error("SEGMENTATION VIOLATION [USER]");
+
+        case SIGUSR1:
+            printf("%ld\n", (long)siginfo->si_pid); /* (long)siginfo->si_pid ==> PID di chi invia il segnale */
+            printf("\n[ %sSIGUSR1%s ] Simulation interrupted due to SIGUSR1\n", YELLOW, WHITE);
+            exit(EXIT_FAILURE);
+            break;
     }
 }
 
