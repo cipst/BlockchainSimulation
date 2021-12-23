@@ -22,11 +22,42 @@ int SO_HOPS;                 /* IMPORTANT numero massimo di salti massimo che un
 
 /* »»»»»»»»»» Definizione Metodi »»»»»»»»»» */
 
+/* Gestore dei segnali */
 void hdl(int, siginfo_t*, void*);
+
+/** Funzione che uccide tutti i processi in shared memory (sia 'users' sia 'nodes').
+*
+*   @param sig segnale da inviare a tutti i processi presenti nella shared memory;
+* */
 void killAll(int);
-void printIpcStatus();
-void printStats();
+
+/** Inizializza le variabili di configurazione e controlla che i valori siano corretti 
+ * 
+ *  @param path percorso dove trovare il file di configurazione
+ * */
 void readConfigFile(char*);
+
+/** Stampa tutte le informazioni ritenute utili prima della terminazione del programma
+ * 
+ *   Vengono stampate a video:
+ *   -   Bilancio di ogni processo utente (compresi quelli terminati prematuramente)
+ *   -   Bilancio di ogni processo nodo
+ *   -   Numero di processi utente terminati prematuramente
+ *   -   Numero di blocchi nel libro mastro
+ *   -   Per ogni processo nodo, numero di transazioni ancora presenti nella transaction pool
+ **/
+void printStats();
+
+/** Stampa a video gli ID degli oggetti IPC:
+*    -  semId: l'id del semaforo
+*    -  shmLedgerId: l'id dell'area di shared memory dedicata al libro mastro (creata con shmget)
+*    -  shmUsersId: l'id dell'area di shared memory dedicata ai processi Utente (creata con shmget)
+*    -  shmNodesId: l'id dell'area di shared memory dedicata ai processi Nodo (creata con shmget)
+*    -  shmActiveProcessId: l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi
+**/
+void printIpcStatus();
+
+/* Scrive su stdout il valore delle variabili di configurazione */
 void printConfigVal();
 
 struct sigaction act;
@@ -45,6 +76,7 @@ int* activeProcess; /* conteggio dei processi attivi in shared memory */
 
 int totalUsers = 0;
 int totalNodes = 0;
+int terminatedPrematurely = 0;
 
 pid_t master_pid;
 char* info[3] = {"utente", "Ciao", NULL};
@@ -205,8 +237,8 @@ int main(int argc, char** argv) {
                 arg[7] = retry;
                 arg[8] = NULL;
 
-                (users + i)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degl utenti */
-                (users + i)->balance = 0;    /* inizializzo il bilancio a 0  */
+                (users + i)->pid = getpid();           /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degl utenti */
+                (users + i)->balance = SO_BUDGET_INIT; /* inizializzo il bilancio a SO_BUDGET_INIT */
 
                 if (execv("./utente", arg) < 0)
                     perror(RED "Failed to launch execv [UTENTE]" WHITE);
@@ -239,6 +271,16 @@ int main(int argc, char** argv) {
     sleep(1);
 
     releaseSem(semId, 0);
+/* 
+    alarm(5);
+    printf("Alarm settato a 1\n"); */
+
+    while (1) {
+        int status;
+        pid_t term = wait(&status);
+        printf("%d%s%s%s\n", term, (WIFCONTINUED(status) ? " CONTINUED" : ""), (WIFSIGNALED(status) ? " SIGNALED" : ""), (WIFSTOPPED(status) ? " STOPPED" : ""));
+        sleep(1);
+    }
 
     printf("CIAO\n");
 }
@@ -259,7 +301,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
                 perror(RED "Sigaction: Failed to assign SIGALRM to custom handler" WHITE);
                 exit(EXIT_FAILURE);
             }
-            printf("%ld\n", SO_SIM_SEC);
 
             printf("\n%sSO_SIM_SEC%s expired - Terminating simulation...", YELLOW, WHITE);
             killAll(SIGINT);
@@ -272,7 +313,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
             system("./ipcrm.sh");
             exit(EXIT_SUCCESS);
-            break;
 
         case SIGINT:
 #ifdef DEBUG
@@ -303,22 +343,15 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             printf("\n[ %sSIGSEGV%s ] Simulation interrupted due to SIGSEGV\n", RED, WHITE);
             killAll(SIGINT);
             exit(EXIT_FAILURE);
-            break;
 
         case SIGUSR1:
             printf("%ld\n", (long)siginfo->si_pid); /* (long)siginfo->si_pid ==> PID di chi invia il segnale */
             printf("\n[ %sSIGUSR1%s ] Simulation interrupted due to SIGUSR1\n", YELLOW, WHITE);
             exit(EXIT_FAILURE);
-            break;
     }
 }
 
 void killAll(int sig) {
-    /**
-	 *  Funzione che uccide tutti i processi in shared memory
-	 *  Invia il segnale passatogli come argomento a tutti i processi presenti nella shared memory;
-	 * 			questa funzione scorre entrambe le shared memory.	
-	 **/
     int i;
 
     for (i = 0; i < SO_USERS_NUM; i++) {
@@ -335,16 +368,6 @@ void killAll(int sig) {
 }
 
 void printIpcStatus() {
-    /**
-	 * 	Funzione utilizzata per stampare a video gli ID degli oggetti IPC
-	 * 		Parametri:
-	 * 			-	semId: è l'id del semaforo
-	 * 			-	shmLedgerId: è l'id dell'area di shared memory dedicata al libro mastro (creata con shmget)
-	 * 			-	shmUsersId: è l'id dell'area di shared memory dedicata ai processi Utente (creata con shmget)
-	 * 			-	shmNodesId: è l'id dell'area di shared memory dedicata ai processi Nodo (creata con shmget)
-     *          -   shmActiveProcessId: è l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi
-	 **/
-
     const char* aux = GREEN "IPC" WHITE;
     printf("\n[ %s ] Printing ipc objects status\n", aux);
     printf("\t[ %s ] semid: %d\n", aux, semId);
@@ -355,23 +378,25 @@ void printIpcStatus() {
 }
 
 void printStats() {
-    /**
-	 * Questa è una funzione che stampa tutte le informazioni ritenute utili prima della terminazione del programma
-	 * 		Vengono stampate a video:
-     *          -   Bilancio di ogni processo utente (compresi quelli terminati prematuramente)
-     *          -   Bilancio di ogni processo nodo
-     *          -   Numero di processi utente terminati prematuramente
-     *          -   Numero di blocchi nel libro mastro
-     *          -   Per ogni processo nodo, numero di transazioni ancora presenti nella transaction pool
-	 **/
-
+    int k;
     const char aux[] = MAGENTA "STATS" WHITE;
-    printf("\n[ %s ] Some stats of the simulation\n", aux);
-    printf("\t[ %s ] Master PID: %d\n", aux, master_pid);
+    printf("\n\n[ %s ] Some stats of the simulation\n", aux);
+
+    printf("\t[ %s ] Balance of every users:\n", aux);
+    for (k = 0; k < SO_USERS_NUM; ++k)
+        printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, WHITE, users[k].balance);
+
+    printf("\t[ %s ] Balance of every nodes:\n", aux);
+    for (k = 0; k < SO_NODES_NUM; ++k)
+        printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + k)->pid, WHITE, nodes[k].balance);
+
+    printf("\t[ %s ] Number of process terminated prematurely: %d\n", aux, terminatedPrematurely);
+
     printf("\t[ %s ] Number of blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
+
+    printf("\n");
 }
 
-/* legge dal percorso in argv[1], inizializza le variabili di configurazione e controlla che i valori siano corretti */
 void readConfigFile(char* path) {
     FILE* fp;                            /* puntatore a file */
     if ((fp = fopen(path, "r")) == NULL) /* apertura del file di configurazione in sola lettura */
@@ -433,7 +458,6 @@ void readConfigFile(char* path) {
         error("SO_HOPS must be greater than or equal to 0.");
 }
 
-/* scrive su stdout il valore delle variabili di configurazione */
 void printConfigVal() {
     printf("\nSO_USERS_NUM: %d\n", SO_USERS_NUM);
     printf("SO_NODES_NUM: %d\n", SO_NODES_NUM);

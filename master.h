@@ -58,14 +58,11 @@ typedef struct {
     int balance;
 } process;
 
-/* Metodo che gestisce la stampa degli errori */
+/** Metodo che gestisce la stampa degli errori
+* 	
+*   @param txt Testo da stampare
+**/
 void error(char* txt) {
-    /**
-	 * Funzione che mi aiuta nella scrittura in output degli errori.
-	 * 		Parametri:
-	 *			-	txt: la stringa che devo stampare
-	 **/
-
     char aux[] = RED "Error" WHITE;
     printf("[ %sERROR%s ] %s%d%s - %s%s%s%s\n", RED, WHITE, BLUE, getpid(), RESET, RED, BOLD, txt, WHITE);
     exit(EXIT_FAILURE);
@@ -121,7 +118,10 @@ int removeSem(int semId, int semNum) {
     return semctl(semId, semNum, IPC_RMID, arg);
 }
 
-/* »»»»»»»»»» Stampa Transazione »»»»»»»»»» */
+/** Stampa a video le informazioni di una transazione
+ * 
+ * @param t Transazione
+ * */
 void printTransaction(transaction t) {
     printf("\t\t%s#----Transaction----%s\n", YELLOW, WHITE);
     printf("\t\t  %sTimestamp%s: %lu\n", BLUE, WHITE, t.timestamp);
@@ -131,7 +131,10 @@ void printTransaction(transaction t) {
     printf("\t\t  %sReward%s: %u\n", BLUE, WHITE, t.reward);
 }
 
-/* »»»»»»»»»» Stampa Blocco »»»»»»»»»» */
+/** Stampa a video le informazioni di un blocco
+ * 
+ * @param b Blocco
+ * */
 void printBlock(block b) {
     int j;
     printf("\t%s#------Block------%s\n", CYAN, WHITE);
@@ -141,7 +144,10 @@ void printBlock(block b) {
     }
 }
 
-/* »»»»»»»»»» Stampa Libro Mastro »»»»»»»»»» */
+/** Stampa a video le informazioni del Libro Mastro
+ * 
+ * @param l Libro Mastro
+ * */
 void printLedger(ledger* l) {
     int i;
     printf("\n%s»»»»»»»» Libro Mastro »»»»»»»»%s\n", MAGENTA, WHITE);
