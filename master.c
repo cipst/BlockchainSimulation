@@ -1,7 +1,6 @@
 #include "master.h"
 
 #include <string.h>
-#include <time.h>
 
 /* #define DEBUG */
 
@@ -17,10 +16,10 @@ long SO_MIN_TRANS_PROC_NSEC; /* minimo valore del tempo simulato (espresso in na
 long SO_MAX_TRANS_PROC_NSEC; /* massimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
 int SO_BUDGET_INIT;          /* budget iniziale di ciascun processo utente */
 time_t SO_SIM_SEC;           /* durata della simulazione (in secondi) */
-int SO_FRIENDS_NUM;          /* IMPORTANT numero di nodi amici dei processi nodo (solo per la versione full) */
-int SO_HOPS;                 /* IMPORTANT numero massimo di salti massimo che una transazione può effettuare quando la transaction pool di un nodo è piena (solo per la versione full) */
+int SO_FRIENDS_NUM;          /* IMPORTANTE numero di nodi amici dei processi nodo (solo per la versione full) */
+int SO_HOPS;                 /* IMPORTANTE numero massimo di salti massimo che una transazione può effettuare quando la transaction pool di un nodo è piena (solo per la versione full) */
 
-/* »»»»»»»»»» Definizione Metodi »»»»»»»»»» */
+/* »»»»»»»»»» DEFINIZIONE METODI »»»»»»»»»» */
 
 /* Gestore dei segnali */
 void hdl(int, siginfo_t*, void*);
@@ -61,7 +60,6 @@ void printIpcStatus();
 void printConfigVal();
 
 struct sigaction act;
-struct timespec tp;
 
 int semId;              /* ftok(..., 's') => 's': semaphore */
 int shmLedgerId;        /* ftok(..., 'l') => 'l': ledger */
@@ -74,18 +72,18 @@ process* users;     /* informazioni sugli utenti in memoria condivisa */
 process* nodes;     /* informazione sui nodi in memoria condivisa */
 int* activeProcess; /* conteggio dei processi attivi in shared memory */
 
-int totalUsers = 0;
-int totalNodes = 0;
-int terminatedPrematurely = 0;
+int totalUsersActive = 0;
+int totalUsersTerminated = 0;
 
 pid_t master_pid;
-char* info[3] = {"utente", "Ciao", NULL};
 int i, j, stop = 0;
 pid_t pid;
 
 int main(int argc, char** argv) {
     if (argc != 2) /* controllo sul numero di argomenti */
         error("Usage: ./master <filepath>\n\n\t<filepath>: Config's file path.");
+
+    printf("[ %smaster - %d%s ] Init IPC objects and all necessary resources. \n", CYAN, getpid(), WHITE);
 
     readConfigFile(argv[1]); /* lettura del file di configurazione */
 
@@ -100,7 +98,7 @@ int main(int argc, char** argv) {
     /* Il campo SA_SIGINFO flag indica a sigaction() di usare il capo sa_sigaction, e non sa_handler. */
     act.sa_flags = SA_SIGINFO;
 
-    /* SEGNALI */
+    /* »»»»»»»»»» SEGNALI »»»»»»»»»» */
     if (sigaction(SIGINT, &act, NULL) < 0) {
         perror(RED "Sigaction: Failed to assign SIGINT to custom handler" WHITE);
         exit(EXIT_FAILURE);
@@ -122,7 +120,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    /* SEMAFORI */
+    /* »»»»»»»»»» SEMAFORI »»»»»»»»»» */
     if ((semId = semget(ftok("./utils/private-key", 's'), 3, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
         perror(RED "Semaphore pool creation failure" WHITE);
         exit(EXIT_FAILURE);
@@ -143,7 +141,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    /* MEMORIE CONDIVISE */
+    /* »»»»»»»»»» MEMORIE CONDIVISE »»»»»»»»»» */
     if ((shmLedgerId = shmget(ftok("./utils/private-key", 'l'), sizeof(ledger), IPC_CREAT | IPC_EXCL | 0644)) < 0) {
         perror(RED "Shared Memory creation failure [LEDGER]" WHITE);
         exit(EXIT_FAILURE);
@@ -217,7 +215,8 @@ int main(int argc, char** argv) {
                 char minTransGen[12];
                 char maxTransGen[12];
                 char retry[12];
-                char* arg[9]; /* salvo le informazioni da passare al processo nodo */
+                char offset[12];
+                char* arg[10]; /* salvo le informazioni da passare al processo utente */
 
                 sprintf(usersNum, "%d", SO_USERS_NUM);
                 sprintf(nodesNum, "%d", SO_NODES_NUM);
@@ -226,6 +225,7 @@ int main(int argc, char** argv) {
                 sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
                 sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
                 sprintf(retry, "%d", SO_RETRY);
+                sprintf(offset, "%d", i);
 
                 arg[0] = "./utente";
                 arg[1] = usersNum;
@@ -235,9 +235,10 @@ int main(int argc, char** argv) {
                 arg[5] = minTransGen;
                 arg[6] = maxTransGen;
                 arg[7] = retry;
-                arg[8] = NULL;
+                arg[8] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
+                arg[9] = NULL;
 
-                (users + i)->pid = getpid();           /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degl utenti */
+                (users + i)->pid = getpid();           /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degli utenti */
                 (users + i)->balance = SO_BUDGET_INIT; /* inizializzo il bilancio a SO_BUDGET_INIT */
 
                 if (execv("./utente", arg) < 0)
@@ -251,12 +252,66 @@ int main(int argc, char** argv) {
         }
     }
 
+    /* IMPORTANT */
+    /* TOFIX */
+    for (i = 0; i < SO_NODES_NUM; ++i) { /* genero SO_NODES_NUM processi nodo */
+        switch (fork()) {
+            case -1:
+                perror(RED "Fork: Failed to create a child process" WHITE);
+                exit(EXIT_FAILURE);
+                break;
+
+            case 0: {
+                /* char usersNum[12];
+                char nodesNum[12];
+                char budgetInit[12];
+                char reward[12];
+                char minTransGen[12];
+                char maxTransGen[12];
+                char retry[12];
+                char offset[12]; */
+                char* arg[10]; /* salvo le informazioni da passare al processo nodo */
+
+                /* sprintf(usersNum, "%d", SO_USERS_NUM);
+                sprintf(nodesNum, "%d", SO_NODES_NUM);
+                sprintf(budgetInit, "%d", SO_BUDGET_INIT);
+                sprintf(reward, "%d", SO_REWARD);
+                sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
+                sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
+                sprintf(retry, "%d", SO_RETRY);
+                sprintf(offset, "%d", i); */
+
+                /* arg[0] = "./nodo";
+                arg[1] = usersNum;
+                arg[2] = nodesNum;
+                arg[3] = budgetInit;
+                arg[4] = reward;
+                arg[5] = minTransGen;
+                arg[6] = maxTransGen;
+                arg[7] = retry; */
+                /* arg[8] = offset; */ /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
+                /* arg[9] = NULL; */
+
+                (nodes + i)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
+                (nodes + i)->balance = 0;    /* inizializzo il bilancio a 0 */
+
+                if (execv("./nodo", arg) < 0)
+                    perror(RED "Failed to launch execv [NODO]" WHITE);
+
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
     printf("[ %smaster%s ] All process generated. \n", CYAN, WHITE);
     sleep(1);
 
-    while (stop == 0) { /* aspetto finchè non trovo SO_USERS_NUM (+ SO_NODES_NUM) processi attivi */
+    while (stop == 0) { /* aspetto finchè non trovo SO_USERS_NUM + SO_NODES_NUM processi attivi */
         reserveSem(semId, 2);
-        if (*activeProcess == SO_USERS_NUM)
+        if (*activeProcess == (SO_USERS_NUM + SO_NODES_NUM))
             stop++;
         releaseSem(semId, 2);
     }
@@ -268,17 +323,21 @@ int main(int argc, char** argv) {
 #endif
 
     printf("[ %smaster%s ] All process are starting...\n", CYAN, WHITE);
-    sleep(1);
 
     releaseSem(semId, 0);
-/* 
-    alarm(5);
-    printf("Alarm settato a 1\n"); */
+
+    alarm(SO_SIM_SEC);
+
+#ifdef DEBUG
+    reserveSem(semId, 1);
+    printf("[ %smaster%s ] Simulation Time setted to %ld seconds \n", CYAN, WHITE, SO_SIM_SEC);
+    releaseSem(semId, 1);
+#endif
 
     while (1) {
         int status;
         pid_t term = wait(&status);
-        printf("%d%s%s%s\n", term, (WIFCONTINUED(status) ? " CONTINUED" : ""), (WIFSIGNALED(status) ? " SIGNALED" : ""), (WIFSTOPPED(status) ? " STOPPED" : ""));
+        printf("%d%s%s%s\n", term, (WIFEXITED(status) ? " EXITED" : ""), (WIFSIGNALED(status) ? " SIGNALED" : ""), (WIFSTOPPED(status) ? " STOPPED" : ""));
         sleep(1);
     }
 
@@ -344,7 +403,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             killAll(SIGINT);
             exit(EXIT_FAILURE);
 
-        case SIGUSR1:
+        case SIGUSR1:                               /* questo segnale mi serve per quando un utente termina prematuramente (a causa di una transazione che non è riuscito ad inviare) */
             printf("%ld\n", (long)siginfo->si_pid); /* (long)siginfo->si_pid ==> PID di chi invia il segnale */
             printf("\n[ %sSIGUSR1%s ] Simulation interrupted due to SIGUSR1\n", YELLOW, WHITE);
             exit(EXIT_FAILURE);
@@ -390,9 +449,11 @@ void printStats() {
     for (k = 0; k < SO_NODES_NUM; ++k)
         printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + k)->pid, WHITE, nodes[k].balance);
 
-    printf("\t[ %s ] Number of process terminated prematurely: %d\n", aux, terminatedPrematurely);
+    printf("\t[ %s ] Number of process terminated prematurely: %d\n", aux, totalUsersTerminated);
 
     printf("\t[ %s ] Number of blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
+
+    printLedger(mastro);
 
     printf("\n");
 }
