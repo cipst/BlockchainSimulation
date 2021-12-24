@@ -9,7 +9,8 @@
 #include <sys/signal.h> /*  per gestire i segnali. signal(), kill(). */
 #include <sys/types.h>  /*  per la portabilità */
 #include <sys/wait.h>   /*  per la wait() e la sleep(). */
-#include <unistd.h>     /*  per la fork, getpid, getppid, etc. */
+#include <time.h>
+#include <unistd.h> /*  per la fork, getpid, getppid, etc. */
 
 extern char** __environ;
 
@@ -58,13 +59,18 @@ typedef struct {
     int balance;
 } process;
 
+typedef struct {
+    transaction transaction;
+    pid_t node;
+} message;
+
 /** Metodo che gestisce la stampa degli errori
 * 	
 *   @param txt Testo da stampare
 **/
 void error(char* txt) {
     char aux[] = RED "Error" WHITE;
-    printf("[ %sERROR%s ] %s%d%s - %s%s%s%s\n", RED, WHITE, BLUE, getpid(), RESET, RED, BOLD, txt, WHITE);
+    printf("[ %sERROR%s ] %s%d%s - %s%s%s%s\n", RED, WHITE, BLUE, getpid(), RESET, RED, BOLD, txt, RESET);
     exit(EXIT_FAILURE);
 }
 
