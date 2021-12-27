@@ -1,27 +1,31 @@
 #include "master.h"
 
-struct timespec remaining, request;
+int queueId;
 
 int main() {
-    long transGenNsec, transGenSec;
-    srand(time(NULL));
-    transGenNsec = (rand() % (5000000000 - 1000000000 + 1)) + 1000000000;
-    printf("1)NanoSec: %ld\n", transGenNsec);
+    message msg;
+    int i = 0;
+    int SO_RETRY = 2;
 
-    if (transGenNsec > 999999999) {
-        transGenSec = transGenNsec / 1000000000;    /* trovo la parte in secondi */
-        transGenNsec -= (transGenSec * 1000000000); /* tolgo la parte in secondi dai nanosecondi */
+    /* »»»»»»»»»» CODA DI MESSAGGI »»»»»»»»»» */
+    /* in base al nodo estratto (nodeReceiver) scelgo la coda di messaggi di quel nodo */
+    if ((queueId = msgget(ftok("./utils/private-key", 'q'), IPC_EXCL | 0644)) < 0) {
+        perror(RED "[USER] Message Queue creation failure" WHITE);
+        exit(EXIT_FAILURE);
     }
 
-    printf("2)NanoSec: %ld\n", transGenNsec);
-    printf("Sec: %ld\n", transGenSec);
-
-    request.tv_nsec = transGenNsec;
-    request.tv_sec = transGenSec;
-    remaining.tv_nsec = transGenNsec;
-    remaining.tv_sec = transGenSec;
-
-    if (nanosleep(&request, &remaining) < 0) {
-        error("FAIL");
+    msg.node = getpid();
+    msg.transaction.quantity = 10;
+    msg.transaction.receiver = -1;
+    msg.transaction.reward = 5;
+    msg.transaction.sender = getpid();
+    msg.transaction.timestamp = 123346298;
+    printf("%d Inviando...\n", getpid());
+    if (msgsnd(queueId, &msg, sizeof(msg) - sizeof(pid_t), IPC_NOWAIT) < 0) {
+        perror("");
+        exit(EXIT_FAILURE);
     }
+    printf("%d Inviato!\n", getpid());
+
+    exit(EXIT_SUCCESS);
 }

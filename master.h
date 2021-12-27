@@ -1,4 +1,8 @@
+#ifndef _MASTER_H
+#define _MASTER_H
+
 #define _GNU_SOURCE
+
 #include <errno.h>
 #include <stdio.h>      /*  per l'I/O */
 #include <stdlib.h>     /*  per la exit, malloc, free, atoi, atof, etc. */
@@ -29,7 +33,7 @@ extern char** __environ;
 #define specialSender (-1)
 
 /* »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»» */
-#define SO_BLOCK_SIZE 5     /* numero di transazioni massime presenti in un blocco del libro mastro */
+#define SO_BLOCK_SIZE 2     /* numero di transazioni massime presenti in un blocco del libro mastro */
 #define SO_REGISTRY_SIZE 10 /* numero di blocchi massimi presenti nel libro mastro */
 
 /* »»»»»»»»»» Transazione »»»»»»»»»» */
@@ -60,8 +64,8 @@ typedef struct {
 } process;
 
 typedef struct {
+    long mtype;
     transaction transaction;
-    pid_t node;
 } message;
 
 /** Metodo che gestisce la stampa degli errori
@@ -162,3 +166,5 @@ void printLedger(ledger* l) {
         printBlock(l->block[i]);
     }
 }
+
+#endif
