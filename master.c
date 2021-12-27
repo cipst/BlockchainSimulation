@@ -30,11 +30,8 @@ void hdl(int, siginfo_t*, void*);
 * */
 void killAll(int);
 
-/** Inizializza le variabili di configurazione e controlla che i valori siano corretti 
- * 
- *  @param path percorso dove trovare il file di configurazione
- * */
-void readConfigFile(char*);
+/* Inizializza le variabili di configurazione e controlla che i valori siano corretti */
+void readConfigFile();
 
 /** Stampa tutte le informazioni ritenute utili prima della terminazione del programma
  * 
@@ -52,7 +49,7 @@ void printStats();
 *    -  shmLedgerId: l'id dell'area di shared memory dedicata al libro mastro (creata con shmget)
 *    -  shmUsersId: l'id dell'area di shared memory dedicata ai processi Utente (creata con shmget)
 *    -  shmNodesId: l'id dell'area di shared memory dedicata ai processi Nodo (creata con shmget)
-*    -  shmActiveProcessId: l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi
+*    -  shmActiveUsersId: l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi
 **/
 void printIpcStatus();
 
@@ -60,32 +57,32 @@ void printIpcStatus();
 void printConfigVal();
 
 struct sigaction act;
+sigset_t set;
 
-int semId;              /* ftok(..., 's') => 's': semaphore */
-int shmLedgerId;        /* ftok(..., 'l') => 'l': ledger */
-int shmUsersId;         /* ftok(..., 'u') => 'u': users */
-int shmNodesId;         /* ftok(..., 'n') => 'n': nodes */
-int shmActiveProcessId; /* ftok(..., 'p') => 'p': process */
+int semId;            /* ftok(..., 's') => 's': semaphore */
+int shmLedgerId;      /* ftok(..., 'l') => 'l': ledger */
+int shmUsersId;       /* ftok(..., 'u') => 'u': users */
+int shmNodesId;       /* ftok(..., 'n') => 'n': nodes */
+int shmActiveUsersId; /* ftok(..., 'a') => 'a': active user process */
+int shmActiveNodesId; /* ftok(..., 'g') => 'g': active user process */
 
-ledger* mastro;     /* informazioni sul libro mastro in memoria condivisa */
-process* users;     /* informazioni sugli utenti in memoria condivisa */
-process* nodes;     /* informazione sui nodi in memoria condivisa */
-int* activeProcess; /* conteggio dei processi attivi in shared memory */
-
-int totalUsersActive = 0;
-int totalUsersTerminated = 0;
+ledger* mastro;   /* informazioni sul libro mastro in memoria condivisa */
+process* users;   /* informazioni sugli utenti in memoria condivisa */
+process* nodes;   /* informazione sui nodi in memoria condivisa */
+int* activeUsers; /* conteggio dei processi utente attivi in shared memory */
+int* activeNodes; /* conteggio dei processi nodo attivi in shared memory */
 
 pid_t master_pid;
 int i, j, stop = 0;
 pid_t pid;
 
 int main(int argc, char** argv) {
-    if (argc != 2) /* controllo sul numero di argomenti */
-        error("Usage: ./master <filepath>\n\n\t<filepath>: Config's file path.");
+    if (argc != 1) /* controllo sul numero di argomenti */
+        error("Usage: ./master");
 
     printf("[ %smaster - %d%s ] Init IPC objects and all necessary resources. \n", CYAN, getpid(), WHITE);
 
-    readConfigFile(argv[1]); /* lettura del file di configurazione */
+    readConfigFile(); /* lettura del file di configurazione */
 
 #ifdef DEBUG
     printConfigVal();
@@ -175,23 +172,38 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
-    shmActiveProcessId = shmget(ftok("./utils/key-private", 'f'), sizeof(int), IPC_CREAT | IPC_EXCL | 0644);
-    if (shmActiveProcessId < 0) {
-        perror(RED "Shared Memory creation failure [ActiveProcess]" WHITE);
+    /* per sincronizzare i processi utente alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveUsersId = shmget(ftok("./utils/key-private", 'a'), sizeof(int), IPC_CREAT | IPC_EXCL | 0644);
+    if (shmActiveUsersId < 0) {
+        perror(RED "Shared Memory creation failure [ActiveUsers]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    activeProcess = (int*)shmat(shmActiveProcessId, NULL, 0);
-    if (activeProcess == (void*)-1) {
-        perror(RED "Shared Memory attach failure [ActiveProcess]" WHITE);
+    activeUsers = (int*)shmat(shmActiveUsersId, NULL, 0);
+    if (activeUsers == (void*)-1) {
+        perror(RED "Shared Memory attach failure [ActiveUsers]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    /* Inizializzo activeProcess a 0 => nessun processo 'utente' è attivo */
+    /* per sincronizzare i processi nodo alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | IPC_EXCL | 0644);
+    if (shmActiveNodesId < 0) {
+        perror(RED "Shared Memory creation failure [ActiveNodes]" WHITE);
+        exit(EXIT_FAILURE);
+    }
+
+    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
+    if (activeNodes == (void*)-1) {
+        perror(RED "Shared Memory attach failure [ActiveNodes]" WHITE);
+        exit(EXIT_FAILURE);
+    }
+
+    /* Inizializzo activeUsers a 0 => nessun processo 'utente' è attivo */
+    /* Inizializzo activeNodes a 0 => nessun processo 'nodo' è attivo */
     /* Il semaforo 2 viene utilizzato per accedere in mutua esclusione all'area di shared memory per sincronizzarsi */
     reserveSem(semId, 2);
-    *activeProcess = 0;
+    *activeUsers = 0;
+    *activeNodes = 0;
     releaseSem(semId, 2);
 
     printIpcStatus(); /* stato degli oggetti IPC */
@@ -199,6 +211,60 @@ int main(int argc, char** argv) {
     master_pid = getpid();
 
     reserveSem(semId, 0);
+
+    for (i = 0; i < SO_NODES_NUM; ++i) { /* genero SO_NODES_NUM processi nodo */
+        switch (fork()) {
+            case -1:
+                perror(RED "Fork: Failed to create a child process" WHITE);
+                exit(EXIT_FAILURE);
+                break;
+
+            case 0: {
+                char usersNum[12];
+                char nodesNum[12];
+                char budgetInit[12];
+                char tpSize[12];
+                char minTransProc[12];
+                char maxTransProc[12];
+                char retry[12];
+                char offset[12];
+                char* arg[10]; /* salvo le informazioni da passare al processo nodo */
+
+                sprintf(usersNum, "%d", SO_USERS_NUM);
+                sprintf(nodesNum, "%d", SO_NODES_NUM);
+                sprintf(budgetInit, "%d", SO_BUDGET_INIT);
+                sprintf(tpSize, "%d", SO_TP_SIZE);
+                sprintf(minTransProc, "%ld", SO_MIN_TRANS_PROC_NSEC);
+                sprintf(maxTransProc, "%ld", SO_MAX_TRANS_PROC_NSEC);
+                sprintf(retry, "%d", SO_RETRY);
+                sprintf(offset, "%d", i);
+
+                arg[0] = "./nodo";
+                arg[1] = usersNum;
+                arg[2] = nodesNum;
+                arg[3] = budgetInit;
+                arg[4] = tpSize;
+                arg[5] = minTransProc;
+                arg[6] = maxTransProc;
+                arg[7] = retry;
+                arg[8] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
+                arg[9] = NULL;
+
+                (nodes + i)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
+                (nodes + i)->balance = 0;    /* inizializzo il bilancio del nodo a 0 */
+
+                if (execv("./nodo", arg) < 0)
+                    perror(RED "Failed to launch execv [NODO]" WHITE);
+
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    printf("[ %smaster%s ] All NODE process generated. \n", CYAN, WHITE);
 
     for (i = 0; i < SO_USERS_NUM; ++i) { /* genero SO_USERS_NUM processi utente */
         switch (fork()) {
@@ -252,74 +318,27 @@ int main(int argc, char** argv) {
         }
     }
 
-    /* IMPORTANT */
-    /* TOFIX */
-    for (i = 0; i < SO_NODES_NUM; ++i) { /* genero SO_NODES_NUM processi nodo */
-        switch (fork()) {
-            case -1:
-                perror(RED "Fork: Failed to create a child process" WHITE);
-                exit(EXIT_FAILURE);
-                break;
+    printf("[ %smaster%s ] All USER process generated. \n", CYAN, WHITE);
 
-            case 0: {
-                /* char usersNum[12];
-                char nodesNum[12];
-                char budgetInit[12];
-                char reward[12];
-                char minTransGen[12];
-                char maxTransGen[12];
-                char retry[12];
-                char offset[12]; */
-                char* arg[10]; /* salvo le informazioni da passare al processo nodo */
+#ifdef DEBUG
+    reserveSem(semId, 1);
+    printf("[ %smaster%s ] Active user processes: %d. \n", CYAN, WHITE, *activeUsers);
+    printf("[ %smaster%s ] Active node processes: %d. \n", CYAN, WHITE, *activeNodes);
+    releaseSem(semId, 1);
+#endif
 
-                /* sprintf(usersNum, "%d", SO_USERS_NUM);
-                sprintf(nodesNum, "%d", SO_NODES_NUM);
-                sprintf(budgetInit, "%d", SO_BUDGET_INIT);
-                sprintf(reward, "%d", SO_REWARD);
-                sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
-                sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
-                sprintf(retry, "%d", SO_RETRY);
-                sprintf(offset, "%d", i); */
-
-                /* arg[0] = "./nodo";
-                arg[1] = usersNum;
-                arg[2] = nodesNum;
-                arg[3] = budgetInit;
-                arg[4] = reward;
-                arg[5] = minTransGen;
-                arg[6] = maxTransGen;
-                arg[7] = retry; */
-                /* arg[8] = offset; */ /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
-                /* arg[9] = NULL; */
-
-                (nodes + i)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
-                (nodes + i)->balance = 0;    /* inizializzo il bilancio a 0 */
-
-                if (execv("./nodo", arg) < 0)
-                    perror(RED "Failed to launch execv [NODO]" WHITE);
-
-                break;
-            }
-
-            default:
-                break;
-        }
-    }
-
-    printf("[ %smaster%s ] All process generated. \n", CYAN, WHITE);
-    sleep(1);
-
-    while (stop == 0) { /* aspetto finchè non trovo SO_USERS_NUM + SO_NODES_NUM processi attivi */
+    while (stop == 0) { /* aspetto finchè non ho SO_USERS_NUM processi utente attivi e SO_NODES_NUM processi nodo attivi */
         reserveSem(semId, 2);
-        if (*activeProcess == (SO_USERS_NUM + SO_NODES_NUM))
+        if ((*activeUsers) == SO_USERS_NUM && (*activeNodes) == SO_NODES_NUM)
             stop++;
         releaseSem(semId, 2);
     }
 
 #ifdef DEBUG
-    reserveSem(semId, 2);
-    printf("activeProcess after while: %d\n", *activeProcess);
-    releaseSem(semId, 2);
+    reserveSem(semId, 1);
+    printf("[ %smaster%s ] Active user processes: %d. \n", CYAN, WHITE, *activeUsers);
+    printf("[ %smaster%s ] Active node processes: %d. \n", CYAN, WHITE, *activeNodes);
+    releaseSem(semId, 1);
 #endif
 
     printf("[ %smaster%s ] All process are starting...\n", CYAN, WHITE);
@@ -337,8 +356,37 @@ int main(int argc, char** argv) {
     while (1) {
         int status;
         pid_t term = wait(&status);
-        printf("%d%s%s%s\n", term, (WIFEXITED(status) ? " EXITED" : ""), (WIFSIGNALED(status) ? " SIGNALED" : ""), (WIFSTOPPED(status) ? " STOPPED" : ""));
+
+#ifdef DEBUG
+        reserveSem(semId, 1);
+        printf("\n[ %smaster%s ] Users terminated prematurely: %s%d%s%s\n", YELLOW, WHITE, CYAN, term, (WIFEXITED(status) ? " EXITED" : ""), WHITE);
+        releaseSem(semId, 1);
+#endif
+
+        if (WIFEXITED(status))            /* controllo se un processo è terminato */
+            if (WEXITSTATUS(status) == 1) /* se è terminato con 1 (== EXIT_FAILURE) vuol dire che è terminato prematuramente */
+                (*activeUsers)--;
+
+#ifdef DEBUG
+        reserveSem(semId, 1);
+        printf("[ %smaster%s ] Active user processes: %d\n", CYAN, WHITE, *activeUsers);
+        releaseSem(semId, 1);
         sleep(1);
+#endif
+
+        if ((*activeUsers) == 0) { /* tutti gli utenti hanno terminato la loro esecuzione */
+            printf("\n[ %smaster%s ] All users ended. %sEnd of the simulation...%s", CYAN, WHITE, YELLOW, WHITE);
+            killAll(SIGINT);
+
+            printStats();
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeUsers);
+            system("./ipcrm.sh");
+
+            exit(EXIT_FAILURE);
+        }
     }
 
     printf("CIAO\n");
@@ -368,7 +416,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
-            shmdt(activeProcess);
+            shmdt(activeUsers);
 
             system("./ipcrm.sh");
             exit(EXIT_SUCCESS);
@@ -386,7 +434,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
                 shmdt(mastro);
                 shmdt(users);
                 shmdt(nodes);
-                shmdt(activeProcess);
+                shmdt(activeUsers);
 
                 system("./ipcrm.sh");
                 printf("[ %sSIGINT%s ] Simulation interrupted\n", YELLOW, WHITE);
@@ -401,11 +449,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
         case SIGSEGV:
             printf("\n[ %sSIGSEGV%s ] Simulation interrupted due to SIGSEGV\n", RED, WHITE);
             killAll(SIGINT);
-            exit(EXIT_FAILURE);
-
-        case SIGUSR1:                               /* questo segnale mi serve per quando un utente termina prematuramente (a causa di una transazione che non è riuscito ad inviare) */
-            printf("%ld\n", (long)siginfo->si_pid); /* (long)siginfo->si_pid ==> PID di chi invia il segnale */
-            printf("\n[ %sSIGUSR1%s ] Simulation interrupted due to SIGUSR1\n", YELLOW, WHITE);
             exit(EXIT_FAILURE);
     }
 }
@@ -433,13 +476,14 @@ void printIpcStatus() {
     printf("\t[ %s ] shmLedgerId: %d\n", aux, shmLedgerId);
     printf("\t[ %s ] shmUsersId: %d\n", aux, shmUsersId);
     printf("\t[ %s ] shmNodesId: %d\n", aux, shmNodesId);
-    printf("\t[ %s ] shmActiveProcessId: %d\n\n", aux, shmActiveProcessId);
+    printf("\t[ %s ] shmActiveUsersId: %d\n", aux, shmActiveUsersId);
+    printf("\t[ %s ] shmActiveNodesId: %d\n\n", aux, shmActiveNodesId);
 }
 
 void printStats() {
     int k;
     const char aux[] = MAGENTA "STATS" WHITE;
-    printf("\n\n[ %s ] Some stats of the simulation\n", aux);
+    printf("\n\n[ %s ] Stats of the simulation\n", aux);
 
     printf("\t[ %s ] Balance of every users:\n", aux);
     for (k = 0; k < SO_USERS_NUM; ++k)
@@ -449,18 +493,20 @@ void printStats() {
     for (k = 0; k < SO_NODES_NUM; ++k)
         printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + k)->pid, WHITE, nodes[k].balance);
 
-    printf("\t[ %s ] Number of process terminated prematurely: %d\n", aux, totalUsersTerminated);
+    reserveSem(semId, 2);
+    printf("\t[ %s ] Process terminated prematurely: %d/%d\n", aux, (SO_USERS_NUM - (*activeUsers)), SO_USERS_NUM);
+    releaseSem(semId, 2);
 
-    printf("\t[ %s ] Number of blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
+    printf("\t[ %s ] Blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
 
     printLedger(mastro);
 
     printf("\n");
 }
 
-void readConfigFile(char* path) {
-    FILE* fp;                            /* puntatore a file */
-    if ((fp = fopen(path, "r")) == NULL) /* apertura del file di configurazione in sola lettura */
+void readConfigFile() {
+    FILE* fp;                                  /* puntatore a file */
+    if ((fp = fopen("./config", "r")) == NULL) /* apertura del file di configurazione in sola lettura */
         error("File Not Found!");
 
     fscanf(fp, "SO_USERS_NUM: %d\n", &SO_USERS_NUM);                             /* numero di processi utente che possono inviare denaro ad altri utenti attraverso una transazione */
