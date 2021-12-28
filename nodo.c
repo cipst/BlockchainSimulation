@@ -2,8 +2,21 @@
 
 /* #define DEBUG */
 
-/* Gestore dei segnali */
+/** Handler dei segnali:
+ *  	-	SIGINT
+ *  	-	SIGTERM
+ *  	-	SIGSEGV
+ *      -   SIGUSR1 
+ **/
 void hdl(int, siginfo_t*, void*);
+
+/** Aggiunge una transazione alla transaction pool
+ * 
+ * @param trans transazione da aggiungere alla transaction pool
+ **/
+void addTransaction(transaction);
+
+void printPool();
 
 struct sigaction act;
 
@@ -14,10 +27,10 @@ int shmUsersId;       /* ftok(..., 'u') => 'u': users */
 int shmNodesId;       /* ftok(..., 'n') => 'n': nodes */
 int shmActiveNodesId; /* ftok(..., 'g') => 'g': active user process */
 
-ledger* mastro;   /* informazioni sul libro mastro in memoria condivisa */
-process* users;   /* informazioni sugli utenti in memoria condivisa */
-process* nodes;   /* informazione sui nodi in memoria condivisa */
-int* activeNodes; /* conteggio dei processi nodo attivi in shared memory */
+ledger* mastro;     /* informazioni sul libro mastro in memoria condivisa */
+userProcess* users; /* informazioni sugli utenti in memoria condivisa */
+nodeProcess* nodes; /* informazione sui nodi in memoria condivisa */
+int* activeNodes;   /* conteggio dei processi nodo attivi in shared memory */
 
 int SO_USERS_NUM;            /* numero di utenti nella simulazione */
 int SO_NODES_NUM;            /* numero di nodi nella simulazione */
@@ -44,14 +57,15 @@ int main(int argc, char** argv) {
     SO_RETRY = atoi(argv[7]);
     offset = atoi(argv[8]);
 
-    pool = (transaction*)malloc(SO_TP_SIZE); /* transaction pool che conterrà tutte le transazioni di questo nodo */
+    pool = (transaction*)malloc(sizeof(transaction) * SO_TP_SIZE); /* transaction pool che conterrà tutte le transazioni di questo nodo */
 
-    bzero(&act, sizeof(act)); /* bzero setta tutti i bytes a zero */
+    /* Copia il carattere \0 in act per tutta la sua lunghezza */
+    memset(&act, '\0', sizeof(act));
 
     /* Dico a sigaction (act) quale handler deve mandare in esecuzione */
     act.sa_sigaction = &hdl;
-    /* Il campo SA_SIGINFO flag indica a sigaction() di usare il capo sa_sigaction, e non sa_handler. */
-    act.sa_flags = SA_SIGINFO;
+
+    act.sa_flags = SA_SIGINFO | SA_NODEFER;
 
     /* »»»»»»»»»» SEGNALI »»»»»»»»»» */
     if (sigaction(SIGINT, &act, NULL) < 0) {
@@ -89,23 +103,23 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(process) * SO_USERS_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(userProcess) * SO_USERS_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
         perror(RED "[NODE] Shared Memory creation failure [USERS]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    users = (process*)shmat(shmUsersId, NULL, 0);
+    users = (userProcess*)shmat(shmUsersId, NULL, 0);
     if (users == (void*)-1) {
         perror(RED "[NODE] Shared Memory attach failure [USERS]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(process) * SO_NODES_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(nodeProcess) * SO_NODES_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
         perror(RED "[NODE] Shared Memory creation failure [NODES]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    nodes = (process*)shmat(shmNodesId, NULL, 0);
+    nodes = (nodeProcess*)shmat(shmNodesId, NULL, 0);
     if (nodes == (void*)-1) {
         perror(RED "[NODE] Shared Memory attach failure [NODES]" WHITE);
         exit(EXIT_FAILURE);
@@ -143,29 +157,37 @@ int main(int argc, char** argv) {
             perror(RED "[NODE] Error in msgrcv()" WHITE);
             exit(EXIT_FAILURE);
         }
+        reserveSem(semId, 1);
+        printf("[%d] PID LETTO: %s%d%s\n", getpid(), CYAN, msg.transaction.sender, WHITE);
+        releaseSem(semId, 1);
+
+        /* TEST */
+        /* DELETE */
+        mastro->block[mastro->size].transaction[mastro->block[mastro->size].size] = msg.transaction;
+        mastro->block[mastro->size].size++;
+        mastro->size++;
+
+        addTransaction(msg.transaction);
+
+        /*         kill(msg.transaction.sender, SIGUSR2); */
 
 #ifdef DEBUG
-        reserveSem(semId, 1);
-        printf("[%d] PID LETTO: %d\n", getpid(), msg.transaction.sender);
-        sleep(1);
-        releaseSem(semId, 1);
-#endif
-
+        /* pos < SO_TP_SIZE */
         if (100 < SO_TP_SIZE) {
             *(pool + pos) = msg.transaction; /* salvo la transazione nella transaction pool */
             printTransaction(*(pool + pos));
             pos++;
         } else {
             reserveSem(semId, 1);
-            printf("[%d] PID LETTO: %d\n", getpid(), msg.transaction.sender);
+            printf("[%d] TIMESTAMP LETTO: %ld\n", getpid(), msg.transaction.timestamp);
             releaseSem(semId, 1);
             kill(msg.transaction.sender, SIGUSR2);
         }
+#endif
     }
 
     printf("\t%d Termino...\n", getpid());
 
-    free(pool);
     shmdt(mastro);
     shmdt(users);
     shmdt(nodes);
@@ -182,17 +204,21 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 	 **/
     switch (sig) {
         case SIGINT:
+            printPool();
             releaseSem(semId, 0);
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
+            free(pool);
             exit(EXIT_SUCCESS);
 
         case SIGTERM:
+            printPool();
             releaseSem(semId, 0);
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
+            free(pool);
             exit(EXIT_FAILURE);
 
         case SIGSEGV:
@@ -200,6 +226,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
+            free(pool);
             error("SEGMENTATION VIOLATION [NODE]");
 
         case SIGUSR1: {
@@ -212,4 +239,33 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             break;
         }
     }
+}
+
+void addTransaction(transaction trans) {
+    reserveSem(semId, 1);
+    printf("TRANSAZIONE AGGIUNTA\n");
+    releaseSem(semId, 1);
+
+    *(pool + pos) = trans; /* salvo la transazione nella transaction pool */
+
+    reserveSem(semId, 1);
+    printf("%d) SENDER: %d\n", pos, (pool + pos)->receiver);
+    releaseSem(semId, 1);
+
+    pos++; /* posizione per la prossima transazione && grandezza della transaction pool*/
+
+    reserveSem(semId, 0);
+    (nodes + offset)->poolSize = pos; /* aggiorno l'attuale grandezza della transaction pool in memoria condivisa */
+    releaseSem(semId, 0);
+}
+
+void printPool() {
+    int j;
+    reserveSem(semId, 1);
+    printf("\n[ %s%d%s ] Transaction pool\n", BLUE, getpid(), WHITE);
+    for (j = 0; j < pos; j++) {
+        /* transaction t = (pool + j)->sender; */
+        printTransaction(*(pool + j));
+    }
+    releaseSem(semId, 1);
 }
