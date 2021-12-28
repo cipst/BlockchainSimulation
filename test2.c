@@ -17,7 +17,13 @@ int main() {
     }
 
     msgrcv(queueId, &msg, sizeof(msg) - sizeof(pid_t), 0, MSG_NOERROR);
-    printf("[%d] PID LETTO: %d\n", getpid(), msg.node);
+    printf("[%d] PID LETTO: %ld\n", getpid(), msg.mtype);
+
+    while (1) {
+        fflush(stdout);
+        printf("#");
+        sleep(1);
+    }
 
     printTransaction(msg.transaction);
 
