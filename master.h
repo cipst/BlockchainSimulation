@@ -4,8 +4,9 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
-#include <stdio.h>      /*  per l'I/O */
-#include <stdlib.h>     /*  per la exit, malloc, free, atoi, atof, etc. */
+#include <stdio.h>  /*  per l'I/O */
+#include <stdlib.h> /*  per la exit, malloc, free, atoi, atof, etc. */
+#include <string.h>
 #include <sys/ipc.h>    /*  per le funzioni ipc */
 #include <sys/msg.h>    /*  per le code di messaggi. */
 #include <sys/sem.h>    /*  per i semafori. */
@@ -57,11 +58,18 @@ typedef struct {
     block block[SO_REGISTRY_SIZE];
 } ledger;
 
-/* »»»»»»»»»» Processi (utente/nodo) »»»»»»»»»» */
+/* »»»»»»»»»» Processo Utente »»»»»»»»»» */
 typedef struct {
     pid_t pid;
     int balance;
-} process;
+} userProcess;
+
+/* »»»»»»»»»» Processo Nodo »»»»»»»»»» */
+typedef struct {
+    pid_t pid;
+    int balance;
+    int poolSize;
+} nodeProcess;
 
 typedef struct {
     long mtype;

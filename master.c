@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-/* #define DEBUG */
+#define DEBUG
 
 /* »»»»»»»»»» VARIABILI di Configurazione »»»»»»»»»» */
 int SO_USERS_NUM;            /* numero di processi utente che possono inviare denaro ad altri utenti attraverso una transazione */
@@ -66,11 +66,11 @@ int shmNodesId;       /* ftok(..., 'n') => 'n': nodes */
 int shmActiveUsersId; /* ftok(..., 'a') => 'a': active user process */
 int shmActiveNodesId; /* ftok(..., 'g') => 'g': active user process */
 
-ledger* mastro;   /* informazioni sul libro mastro in memoria condivisa */
-process* users;   /* informazioni sugli utenti in memoria condivisa */
-process* nodes;   /* informazione sui nodi in memoria condivisa */
-int* activeUsers; /* conteggio dei processi utente attivi in shared memory */
-int* activeNodes; /* conteggio dei processi nodo attivi in shared memory */
+ledger* mastro;     /* informazioni sul libro mastro in memoria condivisa */
+userProcess* users; /* informazioni sugli utenti in memoria condivisa */
+nodeProcess* nodes; /* informazione sui nodi in memoria condivisa */
+int* activeUsers;   /* conteggio dei processi utente attivi in shared memory */
+int* activeNodes;   /* conteggio dei processi nodo attivi in shared memory */
 
 pid_t master_pid;
 int i, j, stop = 0;
@@ -88,12 +88,13 @@ int main(int argc, char** argv) {
     printConfigVal();
 #endif
 
-    bzero(&act, sizeof(act)); /* bzero setta tutti i bytes a zero */
+    /* Copia il carattere \0 in act per tutta la sua lunghezza */
+    memset(&act, '\0', sizeof(act));
 
     /* Dico a sigaction (act) quale handler deve mandare in esecuzione */
     act.sa_sigaction = &hdl;
-    /* Il campo SA_SIGINFO flag indica a sigaction() di usare il capo sa_sigaction, e non sa_handler. */
-    act.sa_flags = SA_SIGINFO;
+
+    act.sa_flags = SA_SIGINFO | SA_NODEFER;
 
     /* »»»»»»»»»» SEGNALI »»»»»»»»»» */
     if (sigaction(SIGINT, &act, NULL) < 0) {
@@ -150,23 +151,23 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(process) * SO_USERS_NUM, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
+    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(userProcess) * SO_USERS_NUM, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
         perror(RED "Shared Memory creation failure [USERS]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    users = (process*)shmat(shmUsersId, NULL, 0);
+    users = (userProcess*)shmat(shmUsersId, NULL, 0);
     if (users == (void*)-1) {
         perror(RED "Shared Memory attach failure [USERS]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(process) * SO_NODES_NUM, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
+    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(nodeProcess) * SO_NODES_NUM, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
         perror(RED "Shared Memory creation failure [NODES]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    nodes = (process*)shmat(shmNodesId, NULL, 0);
+    nodes = (nodeProcess*)shmat(shmNodesId, NULL, 0);
     if (nodes == (void*)-1) {
         perror(RED "Shared Memory attach failure [NODES]" WHITE);
         exit(EXIT_FAILURE);
@@ -304,9 +305,6 @@ int main(int argc, char** argv) {
                 arg[8] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
                 arg[9] = NULL;
 
-                (users + i)->pid = getpid();           /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degli utenti */
-                (users + i)->balance = SO_BUDGET_INIT; /* inizializzo il bilancio a SO_BUDGET_INIT */
-
                 if (execv("./utente", arg) < 0)
                     perror(RED "Failed to launch execv [UTENTE]" WHITE);
 
@@ -359,34 +357,11 @@ int main(int argc, char** argv) {
 
 #ifdef DEBUG
         reserveSem(semId, 1);
-        printf("\n[ %smaster%s ] Users terminated prematurely: %s%d%s%s\n", YELLOW, WHITE, CYAN, term, (WIFEXITED(status) ? " EXITED" : ""), WHITE);
-        releaseSem(semId, 1);
-#endif
-
-        if (WIFEXITED(status))            /* controllo se un processo è terminato */
-            if (WEXITSTATUS(status) == 1) /* se è terminato con 1 (== EXIT_FAILURE) vuol dire che è terminato prematuramente */
-                (*activeUsers)--;
-
-#ifdef DEBUG
-        reserveSem(semId, 1);
+        /* printf("\n[ %smaster%s ] Users terminated prematurely: %s%d%s%s\n", YELLOW, WHITE, CYAN, term, (WIFEXITED(status) ? " EXITED" : ""), WHITE); */
         printf("[ %smaster%s ] Active user processes: %d\n", CYAN, WHITE, *activeUsers);
         releaseSem(semId, 1);
         sleep(1);
 #endif
-
-        if ((*activeUsers) == 0) { /* tutti gli utenti hanno terminato la loro esecuzione */
-            printf("\n[ %smaster%s ] All users ended. %sEnd of the simulation...%s", CYAN, WHITE, YELLOW, WHITE);
-            killAll(SIGINT);
-
-            printStats();
-            shmdt(mastro);
-            shmdt(users);
-            shmdt(nodes);
-            shmdt(activeUsers);
-            system("./ipcrm.sh");
-
-            exit(EXIT_FAILURE);
-        }
     }
 
     printf("CIAO\n");
@@ -423,9 +398,9 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
         case SIGINT:
 #ifdef DEBUG
-            printf("\n[ %sSIGINT%s ] %ld sended SIGINT\n", YELLOW, WHITE, (long)siginfo->si_pid);
+            printf("\n[ %sSIGINT%s ] %d sended SIGINT\n", YELLOW, WHITE, siginfo->si_pid);
 #endif
-            if ((long)siginfo->si_pid != master_pid) {
+            if (siginfo->si_pid != master_pid) {
                 signal(SIGINT, SIG_IGN);
                 kill(0, SIGINT);
                 sigaction(SIGINT, &act, NULL);
@@ -450,6 +425,33 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             printf("\n[ %sSIGSEGV%s ] Simulation interrupted due to SIGSEGV\n", RED, WHITE);
             killAll(SIGINT);
             exit(EXIT_FAILURE);
+
+        case SIGUSR1: /* i processi utente utilizzano SIGUSR1 per notificare al master che sono terminati prematuramente */
+
+#ifdef DEBUG
+            reserveSem(semId, 1);
+            printf("[ %sSIGUSR1%s ] User %s%d%s terminated prematurely\n", YELLOW, WHITE, CYAN, siginfo->si_pid, WHITE);
+            releaseSem(semId, 1);
+#endif
+
+            reserveSem(semId, 2);
+            (*activeUsers)--;
+            releaseSem(semId, 2);
+
+            if ((*activeUsers) == 0) { /* tutti gli utenti hanno terminato la loro esecuzione */
+                printf("\n[ %smaster%s ] All users ended. %sEnd of the simulation...%s", CYAN, WHITE, YELLOW, WHITE);
+                killAll(SIGINT);
+
+                printStats();
+                shmdt(mastro);
+                shmdt(users);
+                shmdt(nodes);
+                shmdt(activeUsers);
+                system("./ipcrm.sh");
+
+                exit(EXIT_FAILURE);
+            }
+            break;
     }
 }
 
@@ -483,15 +485,22 @@ void printIpcStatus() {
 void printStats() {
     int k;
     const char aux[] = MAGENTA "STATS" WHITE;
+
+    reserveSem(semId, 1);
+
     printf("\n\n[ %s ] Stats of the simulation\n", aux);
+
+    printf("\t[ %s ] Total users who participated in the simulation: %d\n", aux, SO_USERS_NUM);
+
+    printf("\t[ %s ] Total nodes who participated in the simulation: %d\n", aux, SO_NODES_NUM);
 
     printf("\t[ %s ] Balance of every users:\n", aux);
     for (k = 0; k < SO_USERS_NUM; ++k)
-        printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, WHITE, users[k].balance);
+        printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, WHITE, (users + k)->balance);
 
-    printf("\t[ %s ] Balance of every nodes:\n", aux);
+    printf("\t[ %s ] Balance of every nodes and number of transactions in TP:\n", aux);
     for (k = 0; k < SO_NODES_NUM; ++k)
-        printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + k)->pid, WHITE, nodes[k].balance);
+        printf("\t\t [ %s%d%s ] Balance: %d\t|\tTransactions remaining: %d/%d\n", BLUE, (nodes + k)->pid, WHITE, (nodes + k)->balance, (nodes + k)->poolSize, SO_TP_SIZE);
 
     reserveSem(semId, 2);
     printf("\t[ %s ] Process terminated prematurely: %d/%d\n", aux, (SO_USERS_NUM - (*activeUsers)), SO_USERS_NUM);
@@ -502,6 +511,8 @@ void printStats() {
     printLedger(mastro);
 
     printf("\n");
+
+    releaseSem(semId, 1);
 }
 
 void readConfigFile() {
