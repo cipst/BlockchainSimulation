@@ -1,8 +1,14 @@
 #include "master.h"
 
-/* #define DEBUG */
+#define DEBUG
 
-/* Gestore dei segnali */
+/** Handler dei segnali:
+ *  	-	SIGINT
+ *  	-	SIGTERM
+ *  	-	SIGSEGV
+ *      -   SIGUSR1 (crea una nuova transazione)
+ *      -   SIGUSR2 (invio transazione fallita)
+ **/
 void hdl(int, siginfo_t*, void*);
 
 /** Calcola il bilancio delle transazioni presenti nel Libro Mastro 
@@ -39,10 +45,10 @@ int shmUsersId;       /* ftok(..., 'u') => 'u': users */
 int shmNodesId;       /* ftok(..., 'n') => 'n': nodes */
 int shmActiveUsersId; /* ftok(..., 'a') => 'a': process */
 
-ledger* mastro;   /* informazioni sul libro mastro in memoria condivisa */
-process* users;   /* informazioni sugli utenti in memoria condivisa */
-process* nodes;   /* informazione sui nodi in memoria condivisa */
-int* activeUsers; /* conteggio dei processi attivi in shared memory */
+ledger* mastro;     /* informazioni sul libro mastro in memoria condivisa */
+userProcess* users; /* informazioni sugli utenti in memoria condivisa */
+nodeProcess* nodes; /* informazione sui nodi in memoria condivisa */
+int* activeUsers;   /* conteggio dei processi attivi in shared memory */
 
 int SO_USERS_NUM;           /* numero di utenti nella simulazione */
 int SO_NODES_NUM;           /* numero di nodi nella simulazione */
@@ -67,12 +73,13 @@ int main(int argc, char** argv) {
     SO_RETRY = atoi(argv[7]);
     offset = atoi(argv[8]);
 
-    bzero(&act, sizeof(act)); /* bzero setta tutti i bytes a zero */
+    /* Copia il carattere \0 in act per tutta la sua lunghezza */
+    memset(&act, '\0', sizeof(act));
 
     /* Dico a sigaction (act) quale handler deve mandare in esecuzione */
     act.sa_sigaction = &hdl;
-    /* Il campo SA_SIGINFO flag indica a sigaction() di usare il capo sa_sigaction, e non sa_handler. */
-    act.sa_flags = SA_SIGINFO;
+
+    act.sa_flags = SA_SIGINFO | SA_NODEFER;
 
     /* »»»»»»»»»» SEGNALI »»»»»»»»»» */
     if (sigaction(SIGINT, &act, NULL) < 0) {
@@ -114,23 +121,23 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(process) * SO_USERS_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(userProcess) * SO_USERS_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
         perror(RED "[USER] Shared Memory creation failure [USERS]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    users = (process*)shmat(shmUsersId, NULL, 0);
+    users = (userProcess*)shmat(shmUsersId, NULL, 0);
     if (users == (void*)-1) {
         perror(RED "[USER] Shared Memory attach failure [USERS]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(process) * SO_NODES_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(nodeProcess) * SO_NODES_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
         perror(RED "[USER] Shared Memory creation failure [NODES]" WHITE);
         exit(EXIT_FAILURE);
     }
 
-    nodes = (process*)shmat(shmNodesId, NULL, 0);
+    nodes = (nodeProcess*)shmat(shmNodesId, NULL, 0);
     if (nodes == (void*)-1) {
         perror(RED "[USER] Shared Memory attach failure [NODES]" WHITE);
         exit(EXIT_FAILURE);
@@ -162,23 +169,52 @@ int main(int argc, char** argv) {
 
     srand(time(NULL) % getpid()); /* randomize seed */
 
+    (users + offset)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degli utenti */
+    balance = SO_BUDGET_INIT;         /* inizializzo il bilancio a SO_BUDGET_INIT */
+
     while (1) {
+#ifdef DEBUG
+        reserveSem(semId, 1);
+        printf("[ %d ] BILANCIO PRIMA: %d\n", getpid(), (users + offset)->balance);
+        releaseSem(semId, 1);
+#endif
+        /* IMPORTANT */
+        /* TOFIX */
+        /* BUG */
+        /* NOTE il bilancio accumula i valori nel libro mastro + i valori rimasti del bilancio attuale dell'utente */
         reserveSem(semId, 0); /* scrivo nella memoria condivisa il bilancio aggiornato */
-        (users + offset)->balance += balanceFromLedger(mastro);
-        balance = (users + offset)->balance;
+        (users + offset)->balance += balanceFromLedger();
+        balance += (users + offset)->balance;
         releaseSem(semId, 0);
+
+#ifdef DEBUG
+        reserveSem(semId, 1);
+        printf("[ %d ] BILANCIO DOPO: %d\n", getpid(), (users + offset)->balance);
+        releaseSem(semId, 1);
+#endif
 
         if (balance >= 2) {
             transaction trans;
+
             trans = createTransaction();
-#ifdef DEBUG
-            reserveSem(semId, 1);
-            printTransaction(trans);
-            releaseSem(semId, 1);
-#endif
+
             sendTransaction(trans);
 
+            reserveSem(semId, 0);
+            (users + offset)->balance -= (trans.quantity + trans.reward);
+            releaseSem(semId, 0);
+
+#ifdef DEBUG
+            reserveSem(semId, 1);
+            printf("[ %d ] BILANCIO DOPO INVIO: %d\n", getpid(), (users + offset)->balance);
+            releaseSem(semId, 1);
+#endif
+
             sleepTransactionGen();
+        } else {
+            /* printf("NOTIFICO IL MASTER CHE NON HO PIU' SOLDI\n"); */
+            kill(getppid(), SIGUSR1);
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -188,13 +224,6 @@ int main(int argc, char** argv) {
 }
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
-    /**
-	 * 	Questo è l'handler dei segnali, gestisce i segnali:
-	 *  	-	SIGINT
-	 *  	-	SIGTERM
-	 *  	-	SIGSEGV
-     *      -   SIGUSR1
-	 **/
     switch (sig) {
         case SIGINT:
             releaseSem(semId, 0);
@@ -232,8 +261,10 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
         case SIGUSR2: {
             reserveSem(semId, 1);
-            printf("\n[ %sSIGUSR2%s ] Impossible to send transaction to\n", YELLOW, WHITE);
+            printf("\n[ %sSIGUSR2%s ] Impossible to send transaction to %d\n", YELLOW, WHITE, siginfo->si_pid);
             releaseSem(semId, 1);
+
+            try++;
 
             if (try == SO_RETRY) { /* non è riuscito ad inviare la transazione */
                 reserveSem(semId, 1);
@@ -255,35 +286,23 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 void sendTransaction(transaction trans) {
     int nodeReceiver, i = 0;
     message msg;
-    int amount = trans.quantity;
-    int reward = trans.reward;
 
     nodeReceiver = (rand() % SO_NODES_NUM); /* estraggo randomicamente una posizione tra 0 e SO_NODES_NUM escluso */
 
     /* »»»»»»»»»» CODA DI MESSAGGI »»»»»»»»»» */
     /* in base al nodo estratto (nodeReceiver) scelgo la coda di messaggi di quel nodo */
     if ((queueId = msgget(ftok("./utils/private-key", 'q'), IPC_EXCL | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[USER] Message Queue creation failure" WHITE);
+        perror(RED "[USER] Message Queue failure" WHITE);
         exit(EXIT_FAILURE);
     }
 
     msg.mtype = (nodes + nodeReceiver)->pid;
     msg.transaction = trans;
 
-    printf("INVIO...\n");
-
     if (msgsnd(queueId, &msg, sizeof(msg) - sizeof(pid_t), IPC_NOWAIT) < 0) {
         perror(RED "[USER] Error in msgsnd()" WHITE);
         exit(EXIT_FAILURE);
     }
-
-    printf("INVIATO!\n", try);
-
-    /* TOFIX */
-
-    reserveSem(semId, 0);
-    (users + offset)->balance -= (amount - reward);
-    releaseSem(semId, 0);
 }
 
 int balanceFromLedger() {
@@ -293,6 +312,7 @@ int balanceFromLedger() {
         for (j = 0; j < mastro->block[i].size; ++j) {
             if (mastro->block[i].transaction[j].sender == getpid()) {
                 balance -= mastro->block[i].transaction[j].quantity;
+                balance -= mastro->block[i].transaction[j].reward;
             }
             if (mastro->block[i].transaction[j].receiver == getpid()) {
                 balance += mastro->block[i].transaction[j].quantity;
@@ -344,7 +364,7 @@ void sleepTransactionGen() {
 
 #ifdef DEBUG
     reserveSem(semId, 1);
-    printf("%sSleep for: %lds %ldnsec\n%s", RED, transGenSec, transGenNsec, WHITE);
+    printf("%sSleep for: %ld s   %ld nsec\n%s", RED, transGenSec, transGenNsec, WHITE);
     releaseSem(semId, 1);
 #endif
 
@@ -353,8 +373,18 @@ void sleepTransactionGen() {
     remaining.tv_nsec = transGenNsec;
     remaining.tv_sec = transGenSec;
 
-    if (nanosleep(&request, &remaining) < 0) {
-        perror(RED "[USER] Nanosleep failed" WHITE);
-        exit(EXIT_FAILURE);
+    if (nanosleep(&request, &remaining) == -1) {
+        switch (errno) {
+            case EINTR: /* errno == EINTR quando nanosleep() viene interrotta da un gestore di segnali */
+                break;
+
+            case EINVAL:
+                perror(RED "tv_nsec - not in range or tv_sec is negative" WHITE);
+                exit(EXIT_FAILURE);
+
+            default:
+                perror(RED "[USER] Nanosleep fail" WHITE);
+                exit(EXIT_FAILURE);
+        }
     }
 }
