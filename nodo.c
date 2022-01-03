@@ -1,6 +1,6 @@
-#include "master.h"
+#include "header.h"
 
-/* #define DEBUG */
+#define DEBUG
 
 /** Handler dei segnali:
  *  	-	SIGINT
@@ -18,44 +18,13 @@ void addTransaction(transaction);
 
 void printPool();
 
-struct sigaction act;
-
-int semId;            /* ftok(..., 's') => 's': semaphore */
-int queueId;          /* ftok(..., 'q') => 'q': queue */
-int shmLedgerId;      /* ftok(..., 'l') => 'l': ledger */
-int shmUsersId;       /* ftok(..., 'u') => 'u': users */
-int shmNodesId;       /* ftok(..., 'n') => 'n': nodes */
-int shmActiveNodesId; /* ftok(..., 'g') => 'g': active user process */
-
-ledger* mastro;     /* informazioni sul libro mastro in memoria condivisa */
-userProcess* users; /* informazioni sugli utenti in memoria condivisa */
-nodeProcess* nodes; /* informazione sui nodi in memoria condivisa */
-int* activeNodes;   /* conteggio dei processi nodo attivi in shared memory */
-
-int SO_USERS_NUM;            /* numero di utenti nella simulazione */
-int SO_NODES_NUM;            /* numero di nodi nella simulazione */
-int SO_BUDGET_INIT;          /* budget iniziale di un utente */
-int SO_TP_SIZE;              /* SO_TP_SIZE massima lunghezza della transaction pool */
-long SO_MIN_TRANS_PROC_NSEC; /* minimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
-long SO_MAX_TRANS_PROC_NSEC; /* massimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
-int SO_RETRY;                /* numero massimo di fallimenti consecutivi nella generazione di transazioni dopo cui un processo utente termina */
-int offset;                  /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
-
 transaction* pool;
 
-int balance = 0;
+int queueId; /* ftok(..., 'q') => 'q': queue */
 int i, j, pos = 0;
 
 int main(int argc, char** argv) {
-    /* Salvo le info necessarie per il nodo */
-    SO_USERS_NUM = atoi(argv[1]);
-    SO_NODES_NUM = atoi(argv[2]);
-    SO_BUDGET_INIT = atoi(argv[3]);
-    SO_TP_SIZE = atoi(argv[4]);
-    SO_MIN_TRANS_PROC_NSEC = atol(argv[5]);
-    SO_MAX_TRANS_PROC_NSEC = atol(argv[6]);
-    SO_RETRY = atoi(argv[7]);
-    offset = atoi(argv[8]);
+    initVariable(argv);
 
     pool = (transaction*)malloc(sizeof(transaction) * SO_TP_SIZE); /* transaction pool che conterrà tutte le transazioni di questo nodo */
 
@@ -69,97 +38,111 @@ int main(int argc, char** argv) {
 
     /* »»»»»»»»»» SEGNALI »»»»»»»»»» */
     if (sigaction(SIGINT, &act, NULL) < 0) {
-        perror(RED "[NODE] Sigaction: Failed to assign SIGINT to custom handler" WHITE);
+        perror(RED "[NODE] Sigaction: Failed to assign SIGINT to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
     if (sigaction(SIGTERM, &act, NULL) < 0) {
-        perror(RED "[NODE] Sigaction: Failed to assign SIGTERM to custom handler" WHITE);
+        perror(RED "[NODE] Sigaction: Failed to assign SIGTERM to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
     if (sigaction(SIGSEGV, &act, NULL) < 0) {
-        perror(RED "[NODE] Sigaction: Failed to assign SIGSEGV to custom handler" WHITE);
+        perror(RED "[NODE] Sigaction: Failed to assign SIGSEGV to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
     if (sigaction(SIGUSR1, &act, NULL) < 0) {
-        perror(RED "[NODE] Sigaction: Failed to assign SIGUSR1 to custom handler" WHITE);
+        perror(RED "[NODE] Sigaction: Failed to assign SIGUSR1 to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
 
     /* »»»»»»»»»» SEMAFORI »»»»»»»»»» */
-    if ((semId = semget(ftok("./utils/private-key", 's'), 3, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Semaphore pool creation failure" WHITE);
+    if ((semId = semget(ftok("./utils/private-key", 's'), 6, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+        perror(RED "[NODE] Semaphore pool creation failure" RESET);
         exit(EXIT_FAILURE);
     }
 
     /* »»»»»»»»»» MEMORIE CONDIVISE »»»»»»»»»» */
     if ((shmLedgerId = shmget(ftok("./utils/private-key", 'l'), sizeof(ledger), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [LEDGER]" WHITE);
+        perror(RED "[NODE] Shared Memory creation failure [LEDGER]" RESET);
         exit(EXIT_FAILURE);
     }
 
     mastro = (ledger*)shmat(shmLedgerId, NULL, 0);
     if (mastro == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [LEDGER]" WHITE);
+        perror(RED "[NODE] Shared Memory attach failure [LEDGER]" RESET);
         exit(EXIT_FAILURE);
     }
 
     if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(userProcess) * SO_USERS_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [USERS]" WHITE);
+        perror(RED "[NODE] Shared Memory creation failure [USERS]" RESET);
         exit(EXIT_FAILURE);
     }
 
     users = (userProcess*)shmat(shmUsersId, NULL, 0);
     if (users == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [USERS]" WHITE);
+        perror(RED "[NODE] Shared Memory attach failure [USERS]" RESET);
         exit(EXIT_FAILURE);
     }
 
     if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(nodeProcess) * SO_NODES_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [NODES]" WHITE);
+        perror(RED "[NODE] Shared Memory creation failure [NODES]" RESET);
         exit(EXIT_FAILURE);
     }
 
     nodes = (nodeProcess*)shmat(shmNodesId, NULL, 0);
     if (nodes == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [NODES]" WHITE);
+        perror(RED "[NODE] Shared Memory attach failure [NODES]" RESET);
         exit(EXIT_FAILURE);
     }
 
     /* per sincronizzare i processi nodo alla creazione iniziale, e dare loro il via con le operazioni */
     shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
     if (shmActiveNodesId < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [ActiveNodes]" WHITE);
+        perror(RED "[NODE] Shared Memory creation failure [ActiveNodes]" RESET);
         exit(EXIT_FAILURE);
     }
 
     activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
     if (activeNodes == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [ActiveNodes]" WHITE);
+        perror(RED "[NODE] Shared Memory attach failure [ActiveNodes]" RESET);
         exit(EXIT_FAILURE);
     }
 
     /* »»»»»»»»»» CODA DI MESSAGGI »»»»»»»»»» */
     if ((queueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Message Queue creation failure" WHITE);
+        perror(RED "[NODE] Message Queue creation failure" RESET);
         exit(EXIT_FAILURE);
     }
 
-    reserveSem(semId, 2);
+    reserveSem(semId, nodeSync);
     (*activeNodes)++;
-    releaseSem(semId, 2);
+    releaseSem(semId, nodeSync);
+
+#ifdef DEBUG
+    reserveSem(semId, print);
+    printf("[%s%d%s] NODE - Wrote +1 in shared\n", BLUE, getpid(), RESET);
+    releaseSem(semId, print);
+#endif
 
     srand(time(NULL) % getpid()); /* randomize seed */
+
+    reserveSem(semId, nodeShm);
+    (nodes + offset)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
+    (nodes + offset)->balance = 0;    /* inizializzo il bilancio del nodo a 0 */
+    releaseSem(semId, nodeShm);
 
     while (1) {
         message msg;
 
-        if (msgrcv(queueId, &msg, sizeof(msg) - sizeof(pid_t), getpid(), MSG_NOERROR) < 0) {
-            perror(RED "[NODE] Error in msgrcv()" WHITE);
+        if (msgrcv(queueId, &msg, sizeof(msg) - sizeof(long), getpid(), MSG_NOERROR) < 0) {
+            perror(RED "[NODE] Error in msgrcv()" RESET);
             exit(EXIT_FAILURE);
         }
-        reserveSem(semId, 1);
-        printf("[%d] PID LETTO: %s%d%s\n", getpid(), CYAN, msg.transaction.sender, WHITE);
-        releaseSem(semId, 1);
+
+#ifdef DEBUG
+        reserveSem(semId, print);
+        printf("[ %s%d%s ] Transaction : %s(%lu, %d, %d)%s\n", BLUE, getpid(), RESET, YELLOW, msg.transaction.timestamp, msg.transaction.sender, msg.transaction.receiver, RESET);
+        releaseSem(semId, print);
+#endif
 
         /* TEST */
         /* DELETE */
@@ -167,14 +150,13 @@ int main(int argc, char** argv) {
         mastro->block[mastro->size].size++;
         mastro->size++;
 
-        addTransaction(msg.transaction);
+        addTransaction(msg.transaction); 
 
-        /*         kill(msg.transaction.sender, SIGUSR2); */
+        /* kill(msg.transaction.sender, SIGUSR2); */
 
-#ifdef DEBUG
-        /* pos < SO_TP_SIZE */
+        /* // pos < SO_TP_SIZE 
         if (100 < SO_TP_SIZE) {
-            *(pool + pos) = msg.transaction; /* salvo la transazione nella transaction pool */
+            *(pool + pos) = msg.transaction;  // salvo la transazione nella transaction pool
             printTransaction(*(pool + pos));
             pos++;
         } else {
@@ -182,8 +164,7 @@ int main(int argc, char** argv) {
             printf("[%d] TIMESTAMP LETTO: %ld\n", getpid(), msg.transaction.timestamp);
             releaseSem(semId, 1);
             kill(msg.transaction.sender, SIGUSR2);
-        }
-#endif
+        } */
     }
 
     printf("\t%d Termino...\n", getpid());
@@ -204,8 +185,12 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 	 **/
     switch (sig) {
         case SIGINT:
+#ifdef DEBUG
+            reserveSem(semId, print);
             printPool();
-            releaseSem(semId, 0);
+            releaseSem(semId, print);
+#endif
+            releaseSem(semId, nodeShm);
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -213,8 +198,12 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_SUCCESS);
 
         case SIGTERM:
+#ifdef DEBUG
+            reserveSem(semId, print);
             printPool();
-            releaseSem(semId, 0);
+            releaseSem(semId, print);
+#endif
+            releaseSem(semId, nodeShm);
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -222,7 +211,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_FAILURE);
 
         case SIGSEGV:
-            releaseSem(semId, 0);
+            releaseSem(semId, nodeShm);
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -231,9 +220,9 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
         case SIGUSR1: {
             /* transaction trans;*/
-            reserveSem(semId, 1);
-            printf("\n[ %sSIGUSR1%s ] Transaction creation due to SIGUSR1\n", YELLOW, WHITE);
-            releaseSem(semId, 1);
+            reserveSem(semId, print);
+            printf("\n[ %sSIGUSR1%s ] Transaction creation due to SIGUSR1\n", YELLOW, RESET);
+            releaseSem(semId, print);
             /*trans = createTransaction();
             sendTransaction(trans); */
             break;
@@ -242,30 +231,21 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 }
 
 void addTransaction(transaction trans) {
-    reserveSem(semId, 1);
-    printf("TRANSAZIONE AGGIUNTA\n");
-    releaseSem(semId, 1);
-
     *(pool + pos) = trans; /* salvo la transazione nella transaction pool */
-
-    reserveSem(semId, 1);
-    printf("%d) SENDER: %d\n", pos, (pool + pos)->receiver);
-    releaseSem(semId, 1);
 
     pos++; /* posizione per la prossima transazione && grandezza della transaction pool*/
 
-    reserveSem(semId, 0);
+    reserveSem(semId, nodeShm);
     (nodes + offset)->poolSize = pos; /* aggiorno l'attuale grandezza della transaction pool in memoria condivisa */
-    releaseSem(semId, 0);
+    releaseSem(semId, nodeShm);
 }
 
 void printPool() {
     int j;
-    reserveSem(semId, 1);
-    printf("\n[ %s%d%s ] Transaction pool\n", BLUE, getpid(), WHITE);
+    reserveSem(semId, print);
+    printf("\n[ %s%d%s ] Transaction pool\n", BLUE, getpid(), RESET);
     for (j = 0; j < pos; j++) {
-        /* transaction t = (pool + j)->sender; */
-        printTransaction(*(pool + j));
+        printTransaction((pool + j));
     }
-    releaseSem(semId, 1);
+    releaseSem(semId, print);
 }
