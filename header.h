@@ -1,3 +1,4 @@
+#ifndef _HEADER_H
 #define _HEADER_H
 #define _GNU_SOURCE
 
@@ -71,6 +72,7 @@ int shmUsersId;       /* ftok(..., 'u') => 'u': users */
 int shmNodesId;       /* ftok(..., 'n') => 'n': nodes */
 int shmActiveUsersId; /* ftok(..., 'a') => 'a': active user process */
 int shmActiveNodesId; /* ftok(..., 'g') => 'g': active user process */
+int queueId;          /* ftok(..., 'q') => 'q': queue */
 
 int* balance; /* RIFERIMENTO contenente il bilancio di ogni processo (RIFERIMENTO a (users+offset)->balance oppure (nodes+offset)->balance) */
 
@@ -110,6 +112,7 @@ typedef struct {
     int poolSize;
 } nodeProcess;
 
+/* »»»»»»»»»» Messaggio »»»»»»»»»» */
 typedef struct {
     long mtype;
     transaction transaction;
@@ -122,10 +125,6 @@ int* activeUsers;        /* conteggio dei processi utente attivi in shared memor
 int* activeNodes;        /* conteggio dei processi nodo attivi in shared memory */
 transaction lastVisited; /* ultima transazione visitata per il conteggio del bilancio */
 
-/**
- *  »»»»»»»»»» GESTIONE SEMAFORI »»»»»»»»»» 
- **/
-
 union semun {
     int val;               /* value for SETVAL */
     struct semid_ds* buf;  /* buffer for IPC_STAT, IPC_SET */
@@ -137,95 +136,43 @@ union semun {
 };
 
 /* Inizializza il semaforo a 1 (DISPONIBILE) */
-int initSemAvailable(int semId, int semNum) {
-    union semun arg;
-    arg.val = 1;
-    return semctl(semId, semNum, SETVAL, arg);
-}
+int initSemAvailable(int semId, int semNum);
 
 /* Inizializza il semaforo a 0 (IN USO) */
-int initSemInUse(int semId, int semNum) {
-    union semun arg;
-    arg.val = 0;
-    return semctl(semId, semNum, SETVAL, arg);
-}
+int initSemInUse(int semId, int semNum);
 
 /* Riserva il semaforo - decrementa di 1 */
-int reserveSem(int semId, int semNum) {
-    struct sembuf sops;
-    sops.sem_num = semNum;
-    sops.sem_op = -1;
-    sops.sem_flg = 0;
-    return semop(semId, &sops, 1);
-}
+int reserveSem(int semId, int semNum);
 
 /* Rilascia il semaforo - incrementa di 1 */
-int releaseSem(int semId, int semNum) {
-    struct sembuf sops;
-    sops.sem_num = semNum;
-    sops.sem_op = 1;
-    sops.sem_flg = 0;
-    return semop(semId, &sops, 1);
-}
+int releaseSem(int semId, int semNum);
 
 /* Rimuove il semaforo (IPC_RMID) */
-int removeSem(int semId, int semNum) {
-    union semun arg;
-    arg.val = 0;
-    return semctl(semId, semNum, IPC_RMID, arg);
-}
-
-/**
- * »»»»»»»»»» METODI »»»»»»»»»» 
- **/
+int removeSem(int semId, int semNum);
 
 /** Metodo che gestisce la stampa degli errori
 * 	
 *   @param txt Testo da stampare
 **/
-void error(char* txt) {
-    printf("[ %sERROR%s ] %d - %s%s%s%s\n", RED, RESET, getpid(), RED, BOLD, txt, RESET);
-    exit(EXIT_FAILURE);
-}
+void error(char* txt);
 
 /** Stampa a video le informazioni di una transazione
  * 
  * @param t Transazione
  * */
-void printTransaction(transaction* t) {
-    printf("\t\t%s#----Transaction----%s\n", YELLOW, RESET);
-    printf("\t\t  %sTimestamp%s: %lu\n", BLUE, RESET, t->timestamp);
-    printf("\t\t  %sSender%s: %d\n", BLUE, RESET, t->sender);
-    printf("\t\t  %sReceiver%s: %d\n", BLUE, RESET, t->receiver);
-    printf("\t\t  %sQuantity%s: %d\n", BLUE, RESET, t->quantity);
-    printf("\t\t  %sReward%s: %u\n", BLUE, RESET, t->reward);
-}
+void printTransaction(transaction* t);
 
 /** Stampa a video le informazioni di un blocco
  * 
  * @param b Blocco
  * */
-void printBlock(block* b) {
-    int j;
-    printf("\t%s#------Block------%s\n", CYAN, RESET);
-    printf("\t  %sSize%s: %d\n", GREEN, RESET, b->size);
-    for (j = 0; j < b->size; ++j) {
-        printTransaction(&(b->transaction[j]));
-    }
-}
+void printBlock(block* b);
 
 /** Stampa a video le informazioni del Libro Mastro
  * 
  * @param l Libro Mastro
  * */
-void printLedger(ledger* l) {
-    int i;
-    printf("\n%s»»»»»»»» Libro Mastro »»»»»»»»%s\n", MAGENTA, RESET);
-    printf("  %sSize%s: %d\n", GREEN, RESET, l->size);
-    for (i = 0; i < l->size; ++i) {
-        printBlock(&(l->block[i]));
-    }
-}
+void printLedger(ledger* l);
 
 /** Controlla se una transazione è già stata calcolata nel bilancio in base al suo timestamp
  * 
@@ -234,16 +181,7 @@ void printLedger(ledger* l) {
  * 
  * @return 0 se è già stata calcolata nel bilancio, -1 altrimenti
   **/
-int alreadyVisited(transaction* lastVisited, transaction* trans) {
-    int already = -1;
-
-    if (trans->timestamp <= lastVisited->timestamp) { /* se TRUE vuol dire che ho già visitato questa transazione */
-        already = 0;
-    } else {
-        (*lastVisited) = (*trans);
-    }
-    return already;
-}
+int alreadyVisited(transaction* lastVisited, transaction* trans);
 
 /** Calcola il bilancio delle transazioni presenti nel Libro Mastro 
  * 
@@ -253,37 +191,92 @@ int alreadyVisited(transaction* lastVisited, transaction* trans) {
  * 
  * @return il bilancio (entrate) delle transazioni che l'utente ha ricevuto
  */
-int balanceFromLedger(ledger* mastro, pid_t identifier, transaction* lastVisited) {
-    int i, j;
-    int ris = 0;
-    for (i = 0; i < mastro->size; ++i) {
-        for (j = 0; j < mastro->block[i].size; ++j) {
-            if (mastro->block[i].transaction[j].receiver == identifier) {
-                if (alreadyVisited(lastVisited, &(mastro->block[i].transaction[j])) == -1) {
-                    ris += mastro->block[i].transaction[j].quantity;
-                }
-            }
-        }
-    }
-    return ris;
-}
+int balanceFromLedger(ledger* mastro, pid_t identifier, transaction* lastVisited);
 
 /** Inizializza le variabili neccessarie per l'esecuzione di un Utente o di un Nodo
  *  
  * @param argv vettore di stringhe contenente i parametri da inizializzare
  **/
-void initVariable(char** argv) {
-    SO_USERS_NUM = atoi(argv[1]);
-    SO_NODES_NUM = atoi(argv[2]);
-    SO_BUDGET_INIT = atoi(argv[3]);
-    SO_MIN_TRANS_GEN_NSEC = atol(argv[5]);
-    SO_MAX_TRANS_GEN_NSEC = atol(argv[6]);
-    SO_RETRY = atoi(argv[7]);
-    offset = atoi(argv[8]);
+void initVariable(char** argv);
 
-    if (strcasecmp(argv[0], "./utente")) { /* controllo che sia un utente */
-        SO_REWARD = atoi(argv[4]);
-    } else { /* altrimenti è un nodo */
-        SO_TP_SIZE = atoi(argv[4]);
-    }
-}
+/* Gestore dei segnali */
+void hdl(int, siginfo_t*, void*);
+
+/** »»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
+ * »»»»»»»»»» MASTER »»»»»»»»»»
+»»»»»»»»»»»»»»»»»»»»»»»»»»»»»» */
+
+/** Funzione che uccide tutti i processi in shared memory (sia 'users' sia 'nodes').
+*
+*   @param sig segnale da inviare a tutti i processi presenti nella shared memory;
+* */
+void killAll(int);
+
+/* Inizializza le variabili di configurazione e controlla che i valori siano corretti */
+void readConfigFile();
+
+/** Stampa tutte le informazioni ritenute utili prima della terminazione del programma
+ * 
+ *   Vengono stampate a video:
+ *   -   Bilancio di ogni processo utente (compresi quelli terminati prematuramente)
+ *   -   Bilancio di ogni processo nodo
+ *   -   Numero di processi utente terminati prematuramente
+ *   -   Numero di blocchi nel libro mastro
+ *   -   Per ogni processo nodo, numero di transazioni ancora presenti nella transaction pool
+ **/
+void printStats();
+
+/** Stampa a video gli ID degli oggetti IPC:
+*    -  semId: l'id del semaforo
+*    -  shmLedgerId: l'id dell'area di shared memory dedicata al libro mastro (creata con shmget)
+*    -  shmUsersId: l'id dell'area di shared memory dedicata ai processi Utente (creata con shmget)
+*    -  shmNodesId: l'id dell'area di shared memory dedicata ai processi Nodo (creata con shmget)
+*    -  shmActiveUsersId: l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi
+**/
+void printIpcStatus();
+
+/* Scrive su stdout il valore delle variabili di configurazione */
+void printConfigVal();
+
+/** »»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
+ * »»»»»»»»»» UTENTE »»»»»»»»»»
+»»»»»»»»»»»»»»»»»»»»»»»»»»»»»» */
+
+/** Crea una nuova transazione
+ * 
+ * @return la transazione da inviare al nodo
+ */
+transaction createTransaction();
+
+/** Sceglie un nodo random per processare la transazione e gliela invia.
+ *  In caso di fallito invio dopo SO_RETRY volte, il processo utente:
+ *      -   Invia un segnale SIGUSR1 al master per notificargli la prematura morte
+ *      -   Dealloca tutte le strutture IPC
+ *      -   Termina
+ */
+void sendTransaction(transaction*);
+
+/* Aspetta un quanto di tempo random compreso tra SO_MIN_TRANS_GEN_NSEC e SO_MAX_TRANS_GEN_NSEC */
+void sleepTransactionGen();
+
+/** »»»»»»»»»»»»»»»»»»»»»»»»»»»»»»
+ * »»»»»»»»»» NODO »»»»»»»»»»
+»»»»»»»»»»»»»»»»»»»»»»»»»»»»»» */
+
+/** Aggiunge una transazione alla transaction pool
+ * 
+ * @param trans transazione da aggiungere alla transaction pool
+ * @param pool  transaction pool
+ * @param pos   posizione corrente nella transaction pool
+ * 
+ * @return la posizione aggiornata
+ **/
+int addTransaction(transaction, transaction*, int);
+
+/** Stampa a video la transaction pool
+ * @param pool transaction pool
+ * @param int  ultima posizione nella transaction pool
+ */
+void printPool(transaction*, int);
+
+#endif

@@ -2,25 +2,8 @@
 
 #define DEBUG
 
-/** Handler dei segnali:
- *  	-	SIGINT
- *  	-	SIGTERM
- *  	-	SIGSEGV
- *      -   SIGUSR1 
- **/
-void hdl(int, siginfo_t*, void*);
-
-/** Aggiunge una transazione alla transaction pool
- * 
- * @param trans transazione da aggiungere alla transaction pool
- **/
-void addTransaction(transaction);
-
-void printPool();
-
 transaction* pool;
 
-int queueId; /* ftok(..., 'q') => 'q': queue */
 int i, j, pos = 0;
 
 int main(int argc, char** argv) {
@@ -150,7 +133,7 @@ int main(int argc, char** argv) {
         mastro->block[mastro->size].size++;
         mastro->size++;
 
-        addTransaction(msg.transaction); 
+        pos = addTransaction(msg.transaction, pool, pos);
 
         /* kill(msg.transaction.sender, SIGUSR2); */
 
@@ -172,80 +155,6 @@ int main(int argc, char** argv) {
     shmdt(mastro);
     shmdt(users);
     shmdt(nodes);
+    free(pool);
     exit(EXIT_SUCCESS);
-}
-
-void hdl(int sig, siginfo_t* siginfo, void* context) {
-    /**
-	 * 	Questo è l'handler dei segnali, gestisce i segnali:
-	 *  	-	SIGINT
-	 *  	-	SIGTERM
-	 *  	-	SIGSEGV
-     *      -   SIGUSR1
-	 **/
-    switch (sig) {
-        case SIGINT:
-#ifdef DEBUG
-            reserveSem(semId, print);
-            printPool();
-            releaseSem(semId, print);
-#endif
-            releaseSem(semId, nodeShm);
-            shmdt(mastro);
-            shmdt(users);
-            shmdt(nodes);
-            free(pool);
-            exit(EXIT_SUCCESS);
-
-        case SIGTERM:
-#ifdef DEBUG
-            reserveSem(semId, print);
-            printPool();
-            releaseSem(semId, print);
-#endif
-            releaseSem(semId, nodeShm);
-            shmdt(mastro);
-            shmdt(users);
-            shmdt(nodes);
-            free(pool);
-            exit(EXIT_FAILURE);
-
-        case SIGSEGV:
-            releaseSem(semId, nodeShm);
-            shmdt(mastro);
-            shmdt(users);
-            shmdt(nodes);
-            free(pool);
-            error("SEGMENTATION VIOLATION [NODE]");
-
-        case SIGUSR1: {
-            /* transaction trans;*/
-            reserveSem(semId, print);
-            printf("\n[ %sSIGUSR1%s ] Transaction creation due to SIGUSR1\n", YELLOW, RESET);
-            releaseSem(semId, print);
-            /*trans = createTransaction();
-            sendTransaction(trans); */
-            break;
-        }
-    }
-}
-
-void addTransaction(transaction trans) {
-    *(pool + pos) = trans; /* salvo la transazione nella transaction pool */
-
-    pos++; /* posizione per la prossima transazione && grandezza della transaction pool*/
-
-    reserveSem(semId, nodeShm);
-    (nodes + offset)->poolSize = pos; /* aggiorno l'attuale grandezza della transaction pool in memoria condivisa */
-    releaseSem(semId, nodeShm);
-}
-
-void printPool() {
-    int j;
-    reserveSem(semId, print);
-    printf("\n[ %s%d%s ] Transaction pool\n", BLUE, getpid(), RESET);
-    for (j = 0; j < pos; j++) {
-        printTransaction((pool + j));
-    }
-    releaseSem(semId, print);
 }
