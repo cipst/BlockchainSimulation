@@ -7,13 +7,13 @@ CFLAGS = -std=c89 -pedantic
 all: master utente nodo
 
 # Solo master
-master : master.c 
+master : master.c header.h
 	${CC} ${CFLAGS} master.c -o master
 
 # Solo utente
-utente: utente.c
+utente: utente.c header.h
 	${CC} ${CFLAGS} utente.c -o utente
 
 # Solo nodo
-nodo: nodo.c
+nodo: nodo.c header.h
 	$(CC) ${CFLAGS} nodo.c -o nodo
