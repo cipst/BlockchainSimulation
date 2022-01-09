@@ -1,8 +1,8 @@
-#include "header.h"
+#include "./headers/utente.h"
 
 #define DEBUG
 
-int i, j, try = 0;
+int i, j;
 
 int main(int argc, char** argv) {
     initVariable(argv);
@@ -32,72 +32,9 @@ int main(int argc, char** argv) {
         perror(RED "[USER] Sigaction: Failed to assign SIGUSR1 to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
-    if (sigaction(SIGUSR2, &act, NULL) < 0) {
-        perror(RED "[USER] Sigaction: Failed to assign SIGUSR2 to custom handler" RESET);
-        exit(EXIT_FAILURE);
-    }
 
-    /* »»»»»»»»»» SEMAFORI »»»»»»»»»» */
-    if ((semId = semget(ftok("./utils/private-key", 's'), 6, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[USER] Semaphore pool creation failure" RESET);
-        exit(EXIT_FAILURE);
-    }
+    initIPCs('u');
 
-    /* »»»»»»»»»» MEMORIE CONDIVISE »»»»»»»»»» */
-    if ((shmLedgerId = shmget(ftok("./utils/private-key", 'l'), sizeof(ledger), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[USER] Shared Memory creation failure [LEDGER]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    mastro = (ledger*)shmat(shmLedgerId, NULL, 0);
-    if (mastro == (void*)-1) {
-        perror(RED "[USER] Shared Memory attach failure [LEDGER]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(userProcess) * SO_USERS_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[USER] Shared Memory creation failure [USERS]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    users = (userProcess*)shmat(shmUsersId, NULL, 0);
-    if (users == (void*)-1) {
-        perror(RED "[USER] Shared Memory attach failure [USERS]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(nodeProcess) * SO_NODES_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[USER] Shared Memory creation failure [NODES]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    nodes = (nodeProcess*)shmat(shmNodesId, NULL, 0);
-    if (nodes == (void*)-1) {
-        perror(RED "[USER] Shared Memory attach failure [NODES]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
-    shmActiveUsersId = shmget(ftok("./utils/key-private", 'a'), sizeof(int), IPC_CREAT | 0644);
-    if (shmActiveUsersId < 0) {
-        perror(RED "[USER] Shared Memory creation failure [ActiveProcess]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    activeUsers = (int*)shmat(shmActiveUsersId, NULL, 0);
-    if (activeUsers == (void*)-1) {
-        perror(RED "[USER] Shared Memory attach failure [ActiveProcess]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* »»»»»»»»»» CODA DI MESSAGGI »»»»»»»»»» */
-    /* in base al nodo estratto (nodeReceiver) scelgo la coda di messaggi di quel nodo */
-    if ((queueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[USER] Message Queue failure" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* Il semaforo 2 viene utilizzato per accedere in mutua esclusione all'area di shared memory per sincronizzarsi */
     reserveSem(semId, userSync);
     (*activeUsers)++;
     releaseSem(semId, userSync);
@@ -113,6 +50,7 @@ int main(int argc, char** argv) {
     reserveSem(semId, userShm);
     (users + offset)->pid = getpid();           /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degli utenti */
     (users + offset)->balance = SO_BUDGET_INIT; /* inizializzo il bilancio a SO_BUDGET_INIT */
+    (users + offset)->alive = 0;                /* inizializzo lo stato dell'utente a VIVO */
     balance = &((users + offset)->balance);     /* RIFERIMENTO al bilancio */
     releaseSem(semId, userShm);
 
@@ -129,9 +67,11 @@ int main(int argc, char** argv) {
 
 #ifdef DEBUG
         reserveSem(semId, print);
-        printf("[ %s%d%s ] BILANCIO: %d\n", CYAN, getpid(), RESET, *balance);
+        printf("[ %s%d%s ] %s%sBALANCE%s %s%d%s $\n", CYAN, getpid(), RESET, BOLD, YELLOW, RESET, BOLD, *balance, RESET);
         releaseSem(semId, print);
 #endif
+
+        receiveResponse();
 
         if ((*balance) >= 2) {
             transaction trans;
@@ -140,13 +80,8 @@ int main(int argc, char** argv) {
 
             sendTransaction(&trans);
 
-#ifdef DEBUG
             reserveSem(semId, print);
-            printf("[ %s%d%s ] BILANCIO PRIMA: %d\n", CYAN, getpid(), RESET, *balance);
-            releaseSem(semId, print);
-#endif
-
-            reserveSem(semId, print);
+            printf("[ %s%d%s ] %s%sNEW%s", CYAN, getpid(), RESET, BOLD, YELLOW, RESET);
             printTransaction(&trans);
             releaseSem(semId, print);
 
@@ -154,23 +89,18 @@ int main(int argc, char** argv) {
             (*balance) -= (trans.quantity + trans.reward);
             releaseSem(semId, userShm);
 
+            /* sleepTransaction(SO_MIN_TRANS_GEN_NSEC, SO_MAX_TRANS_GEN_NSEC); */
+        } else {
 #ifdef DEBUG
             reserveSem(semId, print);
-            printf("[ %s%d%s ] BILANCIO DOPO: %d\n", CYAN, getpid(), RESET, *balance);
+            printf("[ %s%d%s ] Insufficient funds: %d\n", CYAN, getpid(), RESET, *balance);
             releaseSem(semId, print);
+            sleep(1);
 #endif
-
-            sleep(5);
-            /* sleepTransactionGen(); */
-        } else {
-            /* TEST */
-            /* printf("NOTIFICO IL MASTER CHE NON HO PIU' SOLDI\n"); */
-            kill(getppid(), SIGUSR1);
-            exit(EXIT_FAILURE);
         }
-    }
 
-    printf("\t%d Termino...\n", getpid());
+        sleep(2);
+    }
 
     exit(EXIT_SUCCESS);
 }
