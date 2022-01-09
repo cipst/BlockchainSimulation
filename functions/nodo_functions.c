@@ -6,11 +6,12 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 	 *  	-	SIGINT
 	 *  	-	SIGTERM
 	 *  	-	SIGSEGV
-     *      -   SIGUSR1
 	 **/
     switch (sig) {
         case SIGINT:
+            (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
             releaseSem(semId, nodeShm);
+
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -23,7 +24,9 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_SUCCESS);
 
         case SIGTERM:
+            (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
             releaseSem(semId, nodeShm);
+
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -44,16 +47,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             free(pool);
 
             error("SEGMENTATION VIOLATION [NODE]");
-
-        case SIGUSR1: {
-            /* transaction trans;*/
-            reserveSem(semId, print);
-            printf("\n[ %sSIGUSR1%s ] Transaction creation due to SIGUSR1\n", YELLOW, RESET);
-            releaseSem(semId, print);
-            /*trans = createTransaction();
-            sendTransaction(trans); */
-            break;
-        }
     }
 }
 
@@ -102,7 +95,7 @@ int createBlock(block* b, unsigned int* pos) {
                 sum += (pool + index)->reward;
             }
         }
-        (*pos) = index;
+        (*pos) = ((index + 1) % SO_TP_SIZE);
 
         clock_gettime(CLOCK_MONOTONIC, &tp);
         b->transaction[b->size].timestamp = (tp.tv_sec * 1000000000) + tp.tv_nsec; /* in questo modo ho creato un numero identificatore unico per questa transazione */
@@ -119,7 +112,7 @@ int createBlock(block* b, unsigned int* pos) {
 }
 
 int removeBlockFromPool(block* b) {
-    unsigned int i, j;
+    unsigned int i, j, index;
     int startPS, endPS, found = -1;
 
     reserveSem(semId, nodeShm);
@@ -127,12 +120,13 @@ int removeBlockFromPool(block* b) {
     releaseSem(semId, nodeShm);
 
     for (i = 0; i < (b->size) - 1; ++i) {
-        for (j = 0; found = -1 && j < startPS; ++j) {
-            if (b->transaction[i].timestamp == pool[j].timestamp) {       /* check timestamp */
-                if (b->transaction[i].sender == pool[j].sender) {         /* check sender */
-                    if (b->transaction[i].receiver == pool[j].receiver) { /* check receiver */
+        for (j = 0; found = -1 && j < SO_TP_SIZE; ++j) {
+            index = (j % SO_TP_SIZE);
+            if (b->transaction[i].timestamp == pool[index].timestamp) {       /* check timestamp */
+                if (b->transaction[i].sender == pool[index].sender) {         /* check sender */
+                    if (b->transaction[i].receiver == pool[index].receiver) { /* check receiver */
                         found = 0;
-                        removeTransaction(j);
+                        removeTransaction(index);
                     }
                 }
             }
@@ -151,12 +145,17 @@ int removeBlockFromPool(block* b) {
 }
 
 int updateLedger(block* b) {
+    reserveSem(semId, ledgerShm);
+
     if (mastro->size < SO_REGISTRY_SIZE) {
         mastro->block[mastro->size] = *b;
         (mastro->size)++;
+
+        releaseSem(semId, ledgerShm);
         return 0;
     }
 
+    releaseSem(semId, ledgerShm);
     return -1;
 }
 

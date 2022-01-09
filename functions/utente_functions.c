@@ -10,7 +10,9 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
     switch (sig) {
         case SIGINT:
+            (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
             releaseSem(semId, userShm);
+
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -22,6 +24,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_SUCCESS);
 
         case SIGTERM:
+            (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
             releaseSem(semId, userShm);
             shmdt(mastro);
             shmdt(users);
