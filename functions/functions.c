@@ -130,9 +130,9 @@ void error(char* txt) {
 
 void printTransaction(transaction* t) {
     if (t->sender != -1)
-        printf("%6s(%s%s%s%lu%s, %s%d%s → %s%d%s, %s%d%s$, %s%u%s$)\n", " ", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, CYAN, t->sender, RESET, CYAN, t->receiver, RESET, GREEN, t->quantity, RESET, RED, t->reward, RESET);
+        printf("\t(%s%s%s%lu%s, %s%d%s → %s%d%s, %s%d%s$, %s%u%s$)\n", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, CYAN, t->sender, RESET, CYAN, t->receiver, RESET, GREEN, t->quantity, RESET, RED, t->reward, RESET);
     else
-        printf("%6s(%s%s%s%lu%s, %s%s%d%s → %s%d%s, %s%d%s$, %u)\n\n", " ", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, BOLD, MAGENTA, t->sender, RESET, BLUE, t->receiver, RESET, RED, t->quantity, RESET, t->reward);
+        printf("\t(%s%s%s%lu%s, %s%s%d%s → %s%d%s, %s%d%s$, %u)\n\n", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, BOLD, MAGENTA, t->sender, RESET, BLUE, t->receiver, RESET, RED, t->quantity, RESET, t->reward);
 
     /* printf("\t\t  %sTimestamp%s: %lu\n", BLUE, RESET, t->timestamp);
     printf("\t\t  %sSender%s: %d\n", BLUE, RESET, t->sender);
@@ -143,8 +143,8 @@ void printTransaction(transaction* t) {
 
 void printBlock(block* b) {
     int j;
-    printf("%s#-------------------- Block --------------------%s\n", CYAN, RESET);
-    printf("  %sSize%s: %d\n", GREEN, RESET, b->size);
+    printf("\t%s#-------------------- %sBlock%s%s --------------------%s\n", MAGENTA, BOLD, RESET, MAGENTA, RESET);
+    printf("\t%sSize%s: %d\n", GREEN, RESET, b->size);
     for (j = 0; j < b->size; ++j) {
         printTransaction(&(b->transaction[j]));
     }
@@ -152,8 +152,8 @@ void printBlock(block* b) {
 
 void printLedger(ledger* l) {
     int i;
-    printf("\n%s%s»»»»»»»»»»»»»»»»»» Libro Mastro »»»»»»»»»»»»»»»»»»%s\n", BOLD, MAGENTA, RESET);
-    printf("  %sSize%s: %d\n", GREEN, RESET, l->size);
+    printf("\n%s%s»»»»»»»»»»»»»»»»»»»»»» Libro Mastro »»»»»»»»»»»»»»»»»»»»»»%s\n", BOLD, MAGENTA, RESET);
+    printf("%sSize%s: %d\n", GREEN, RESET, l->size);
     for (i = 0; i < l->size; ++i) {
         printBlock(&(l->block[i]));
     }

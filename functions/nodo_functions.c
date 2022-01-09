@@ -17,9 +17,10 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(activeNodes);
             free(pool);
 
-            sigaction(SIGINT, &act, NULL);
-
-            error("SIGINT [NODE]");
+            reserveSem(semId, print);
+            printf("\n\t[ %s%d%s ] %sSIGINT%s received\n", BLUE, getpid(), RESET, YELLOW, RESET);
+            releaseSem(semId, print);
+            exit(EXIT_SUCCESS);
 
         case SIGTERM:
             releaseSem(semId, nodeShm);
@@ -29,8 +30,10 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(activeNodes);
             free(pool);
 
-            error("SIGTERM [NODE]");
-            break;
+            reserveSem(semId, print);
+            printf("\n\t[ %s%d%s ] %sSIGTERM%s received\n", BLUE, getpid(), RESET, YELLOW, RESET);
+            releaseSem(semId, print);
+            exit(EXIT_SUCCESS);
 
         case SIGSEGV:
             releaseSem(semId, nodeShm);

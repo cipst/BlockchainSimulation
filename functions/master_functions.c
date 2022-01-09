@@ -24,7 +24,9 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             killAll(SIGINT);
 
             while ((term = wait(&status)) != -1) {
+                reserveSem(semId, print);
                 printf("\n[ %s%smaster%s ] Process w/ PID %d ended", BOLD, GREEN, RESET, term);
+                releaseSem(semId, print);
                 sleep(1);
             }
 
