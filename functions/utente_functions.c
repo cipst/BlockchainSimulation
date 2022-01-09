@@ -1,4 +1,4 @@
-#include "../header.h"
+#include "../headers/utente.h"
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /** Segnali gestiti:
@@ -6,7 +6,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
     *  	-	SIGTERM
     *  	-	SIGSEGV
     *   -   SIGUSR1 (crea una nuova transazione)
-    *   -   SIGUSR2 (invio transazione fallita)
     **/
 
     switch (sig) {
@@ -16,7 +15,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(users);
             shmdt(nodes);
             shmdt(activeUsers);
-            kill(getppid(), SIGUSR1);
             exit(EXIT_SUCCESS);
 
         case SIGTERM:
@@ -25,7 +23,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(users);
             shmdt(nodes);
             shmdt(activeUsers);
-            kill(getppid(), SIGUSR1);
             exit(EXIT_FAILURE);
 
         case SIGSEGV:
@@ -47,66 +44,26 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             sendTransaction(&trans);
             break;
         }
-
-        case SIGUSR2: {
-            reserveSem(semId, print);
-            printf("\n[ %sSIGUSR2%s ] Impossible to send transaction to %d\n", YELLOW, RESET, siginfo->si_pid);
-            releaseSem(semId, print);
-
-            /* try++; */
-
-            /* if (try == SO_RETRY) { 
-                reserveSem(semId, print);
-                printf("[ %s%d%s ] Failed to send transaction for SO_RETRY times\n", CYAN, getpid(), RESET);
-                releaseSem(semId, print);
-
-                shmdt(mastro);
-                shmdt(users);
-                shmdt(nodes);
-                shmdt(activeUsers);
-
-                exit(EXIT_FAILURE);
-            } */
-            break;
-        }
     }
 }
 
-void sendTransaction(transaction* trans) {
-    int nodeReceiver;
-    message msg;
+int isAlive(int offset) {
+    int isAlive;
 
-    nodeReceiver = (rand() % SO_NODES_NUM); /* estraggo randomicamente una posizione tra 0 e SO_NODES_NUM escluso */
+    reserveSem(semId, userShm);
+    isAlive = (users + offset)->alive;
+    releaseSem(semId, userShm);
 
-    msg.mtype = (long)((nodes + nodeReceiver)->pid);
-    msg.transaction = *trans;
-
-    /* reserveSem(semId, print);
-    printf("\tQueueId: %d\n", queueId);
-    printf("\tMSG MTYPE: %d\n", msg.mtype);
-    printf("\tMSG TRANSACTION: (%lu, %d, %d)\n", msg.transaction.timestamp, msg.transaction.sender, msg.transaction.receiver);
-    releaseSem(semId, print); */
-
-    if (msgsnd(queueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
-        perror(RED "[USER] Error in msgsnd()" RESET);
-        kill(getppid(), SIGUSR1);
-        exit(EXIT_FAILURE);
-    }
-
-#ifdef DEBUG
-    reserveSem(semId, print);
-    printf("[ %s%d%s ] Transaction %s%ssended%s: (%lu, %d, %d)\n", CYAN, getpid(), RESET, BOLD, BLUE, RESET, trans->timestamp, trans->sender, trans->receiver);
-    releaseSem(semId, print);
-#endif
+    return isAlive;
 }
 
 transaction createTransaction() {
     transaction trans;
     int userReceiver, amount, nodeReward;
 
-    do {                                        /* estrazione processo utente destinatario */
-        userReceiver = (rand() % SO_USERS_NUM); /* estraggo randomicamente una posizione tra 0 e SO_USERS_NUM escluso */
-    } while (userReceiver == offset);           /* cerco la posizione random finché non è diversa dalla posizione dell'utente corrente */
+    do {                                                             /* estrazione processo utente destinatario */
+        userReceiver = (rand() % SO_USERS_NUM);                      /* estraggo randomicamente una posizione tra 0 e SO_USERS_NUM escluso */
+    } while (userReceiver == offset || isAlive(userReceiver) == -1); /* cerco la posizione random finché non è diversa dalla posizione dell'utente corrente e finchè non trovo un utente ancora vivo */
 
     reserveSem(semId, userShm);
     amount = (rand() % ((*balance) - 1)) + 2; /* quantità da inviare: estraggo un numero compreso tra 2 e balance ==> estraggo un numero compreso tra 0 e balance-1 escluso ==> tra 0 e balance-2 e sommo 2 */
@@ -123,48 +80,65 @@ transaction createTransaction() {
     trans.quantity = amount - nodeReward;
     trans.reward = nodeReward;
 
-    /* #ifdef DEBUG
-    reserveSem(semId, print);
-    printTransaction(trans);
-    releaseSem(semId, print);
-#endif */
-
     return trans;
 }
 
-void sleepTransactionGen() {
-    long transGenNsec, transGenSec;
+void sendTransaction(transaction* trans) {
+    int nodeReceiver;
+    message msg;
 
-    transGenNsec = (rand() % (SO_MAX_TRANS_GEN_NSEC - SO_MIN_TRANS_GEN_NSEC + 1)) + SO_MIN_TRANS_GEN_NSEC;
+    nodeReceiver = (rand() % SO_NODES_NUM); /* estraggo randomicamente una posizione tra 0 e SO_NODES_NUM escluso */
 
-    if (transGenNsec > 999999999) {
-        transGenSec = transGenNsec / 1000000000;    /* trovo la parte in secondi */
-        transGenNsec -= (transGenSec * 1000000000); /* tolgo la parte in secondi dai nanosecondi */
+    msg.mtype = (long)((nodes + nodeReceiver)->pid);
+    msg.transaction = *trans;
+
+    if (msgsnd(messageQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
+        perror(RED "[USER] Error in msgsnd()" RESET);
+        kill(getppid(), SIGUSR1);
+        exit(EXIT_FAILURE);
     }
 
 #ifdef DEBUG
     reserveSem(semId, print);
-    printf("%sSleep for: %ld s   %ld nsec%s\n", RED, transGenSec, transGenNsec, RESET);
+    printf("[ %s%d%s ] Transaction %s%ssended%s: (%lu, %d, %d)\n", CYAN, getpid(), RESET, BOLD, BLUE, RESET, trans->timestamp, trans->sender, trans->receiver);
     releaseSem(semId, print);
 #endif
+}
 
-    request.tv_nsec = transGenNsec;
-    request.tv_sec = transGenSec;
-    remaining.tv_nsec = transGenNsec;
-    remaining.tv_sec = transGenSec;
+void receiveResponse() {
+    message msg;
 
-    if (nanosleep(&request, &remaining) == -1) {
-        switch (errno) {
-            case EINTR: /* errno == EINTR quando nanosleep() viene interrotta da un gestore di segnali */
-                break;
+    if (msgrcv(responseQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT | MSG_NOERROR) < 0) {
+        if (errno != ENOMSG) {
+            perror(RED "[USER] Error in responseQueueId msgrcv()" RESET);
+            exit(EXIT_FAILURE);
+        } else {
+            try = 0;
+        }
+    } else {
+        printf("[ %s%d%s ] %s%sFAIL%s", CYAN, getpid(), RESET, BOLD, RED, RESET);
+        printTransaction(&(msg.transaction));
 
-            case EINVAL:
-                perror(RED "tv_nsec - not in range or tv_sec is negative" RESET);
-                exit(EXIT_FAILURE);
+        try++;
 
-            default:
-                perror(RED "[USER] Nanosleep fail" RESET);
-                exit(EXIT_FAILURE);
+        if (try == SO_RETRY) {
+            reserveSem(semId, print);
+            printf("[ %s%d%s ] Failed to send transaction for %d (SO_RETRY) times\n", CYAN, getpid(), RESET, SO_RETRY);
+            releaseSem(semId, print);
+
+            reserveSem(semId, userShm);
+            (users + offset)->alive = -1; /* imposto lo stato dell'utente a MORTO */
+            releaseSem(semId, userShm);
+
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeUsers);
+            shmdt(activeNodes);
+
+            kill(getppid(), SIGUSR1);
+
+            exit(EXIT_FAILURE);
         }
     }
 }

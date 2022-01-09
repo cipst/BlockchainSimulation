@@ -1,4 +1,4 @@
-#include "../header.h"
+#include "../headers/master.h"
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /**
@@ -8,17 +8,25 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 	 *  	-	SIGTERM
 	 *  	-	SIGSEGV
      *      -   SIGUSR1
+     *      -   SIGUSR2
 	 **/
 
     switch (sig) {
+        int status;
+        pid_t term;
         case SIGALRM:
             if (sigaction(SIGALRM, &act, NULL) < 0) {
                 perror(RED "Sigaction: Failed to assign SIGALRM to custom handler" RESET);
                 exit(EXIT_FAILURE);
             }
 
-            printf("\n%sSO_SIM_SEC%s expired - Terminating simulation...", YELLOW, RESET);
-            killAll(SIGKILL);
+            printf("\n%sSO_SIM_SEC%s expired - Termination of the simulation...\n", YELLOW, RESET);
+            killAll(SIGINT);
+
+            while ((term = wait(&status)) != -1) {
+                printf("\n[ %s%smaster%s ] Process w/ PID %d ended", BOLD, GREEN, RESET, term);
+                sleep(1);
+            }
 
             printStats();
             shmdt(mastro);
@@ -35,11 +43,11 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             printf("\n[ %sSIGINT%s ] %d sended SIGINT\n", YELLOW, RESET, siginfo->si_pid);
 #endif
 
-            printStats();
+            signal(SIGINT, SIG_IGN);
+            kill(0, SIGINT);
+            sigaction(SIGINT, &act, NULL);
 
-            /* signal(SIGINT, SIG_IGN); */
-            /* kill(0, SIGINT); */
-            /* sigaction(SIGINT, &act, NULL); */
+            printStats();
 
             shmdt(mastro);
             shmdt(users);
@@ -62,14 +70,17 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
         case SIGUSR1: /* i processi utente utilizzano SIGUSR1 per notificare al master che sono terminati prematuramente */
 
-#ifdef DEBUG
             reserveSem(semId, print);
             printf("[ %sSIGUSR1%s ] User %s%d%s terminated prematurely\n", YELLOW, RESET, CYAN, siginfo->si_pid, RESET);
             releaseSem(semId, print);
-#endif
 
             reserveSem(semId, userSync);
             (*activeUsers)--;
+
+            reserveSem(semId, print);
+            printf("[ %sSIGUSR1%s ] Active users: %d\n", YELLOW, RESET, *activeUsers);
+            releaseSem(semId, print);
+
             releaseSem(semId, userSync);
 
             if ((*activeUsers) == 0) { /* tutti gli utenti hanno terminato la loro esecuzione */
@@ -80,11 +91,27 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
                 shmdt(users);
                 shmdt(nodes);
                 shmdt(activeUsers);
+                shmdt(activeNodes);
                 system("./ipcrm.sh");
 
                 exit(EXIT_FAILURE);
             }
             break;
+
+        case SIGUSR2:
+            reserveSem(semId, print);
+            printf("[ %sSIGUSR2%s ] Node %s%d%s found %s%sLIBRO MASTRO%s full!\n", YELLOW, RESET, BLUE, siginfo->si_pid, RESET, BOLD, GREEN, RESET);
+            releaseSem(semId, print);
+            printStats();
+            killAll(SIGKILL);
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeUsers);
+            shmdt(activeNodes);
+            system("./ipcrm.sh");
+
+            exit(EXIT_FAILURE);
     }
 }
 
@@ -123,9 +150,9 @@ void printStats() {
 
     printf("\n\n[ %s ] Stats of the simulation\n", aux);
 
-    printf("\t[ %s ] Total users in the simulation: %d\n", aux, SO_USERS_NUM);
+    printf("\t[ %s ] Total %susers%s in the simulation: %d\n", aux, CYAN, RESET, SO_USERS_NUM);
 
-    printf("\t[ %s ] Total nodes in the simulation: %d\n", aux, SO_NODES_NUM);
+    printf("\t[ %s ] Total %snodes%s in the simulation: %d\n", aux, BLUE, RESET, SO_NODES_NUM);
 
     printf("\t[ %s ] Balance of every users:\n", aux);
     for (k = 0; k < SO_USERS_NUM; ++k)
@@ -149,8 +176,8 @@ void printStats() {
 }
 
 void readConfigFile() {
-    FILE* fp;                                  /* puntatore a file */
-    if ((fp = fopen("./config", "r")) == NULL) /* apertura del file di configurazione in sola lettura */
+    FILE* fp;                                        /* puntatore a file */
+    if ((fp = fopen("./utils/config", "r")) == NULL) /* apertura del file di configurazione in sola lettura */
         error("File Not Found!");
 
     fscanf(fp, "SO_USERS_NUM: %d\n", &SO_USERS_NUM);                             /* numero di processi utente che possono inviare denaro ad altri utenti attraverso una transazione */
