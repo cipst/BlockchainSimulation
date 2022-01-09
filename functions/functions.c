@@ -189,9 +189,11 @@ int alreadyVisited(transaction* lastVisited, transaction* trans) {
     return already;
 }
 
-int balanceFromLedger(ledger* mastro, pid_t identifier, transaction* lastVisited) {
+int balanceFromLedger(pid_t identifier, transaction* lastVisited) {
     int i, j;
     int ris = 0;
+
+    reserveSem(semId, ledgerShm);
     for (i = 0; i < (mastro->size); ++i) {
         for (j = 0; j < (mastro->block[i].size); ++j) {
             if (mastro->block[i].transaction[j].receiver == identifier) {
@@ -201,6 +203,8 @@ int balanceFromLedger(ledger* mastro, pid_t identifier, transaction* lastVisited
             }
         }
     }
+    releaseSem(semId, ledgerShm);
+
     return ris;
 }
 

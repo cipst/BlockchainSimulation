@@ -154,21 +154,21 @@ void printStats() {
 
     printf("\t[ %s ] Total %susers%s in the simulation: %d\n", aux, CYAN, RESET, SO_USERS_NUM);
 
-    printf("\t[ %s ] Total %snodes%s in the simulation: %d\n", aux, BLUE, RESET, SO_NODES_NUM);
+    printf("\t[ %s ] Total %snodes%s in the simulation: %d\n\n", aux, BLUE, RESET, SO_NODES_NUM);
 
     printf("\t[ %s ] Balance of every users:\n", aux);
     for (k = 0; k < SO_USERS_NUM; ++k)
         printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, RESET, (users + k)->balance);
 
-    printf("\t[ %s ] Balance of every nodes and number of transactions in TP:\n", aux);
+    printf("\n\t[ %s ] Balance of every nodes and number of transactions in TP:\n", aux);
     for (k = 0; k < SO_NODES_NUM; ++k)
         printf("\t\t [ %s%d%s ] Balance: %d\t|\tTransactions remaining: %d/%d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance, (nodes + k)->poolSize, SO_TP_SIZE);
 
     reserveSem(semId, userSync);
-    printf("\t[ %s ] Process terminated prematurely: %d/%d\n", aux, (SO_USERS_NUM - (*activeUsers)), SO_USERS_NUM);
+    printf("\n\t[ %s ] Process terminated prematurely: %d/%d\n", aux, (SO_USERS_NUM - (*activeUsers)), SO_USERS_NUM);
     releaseSem(semId, userSync);
 
-    printf("\t[ %s ] Blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
+    printf("\n\t[ %s ] Blocks in the Ledger: %d/%d\n", aux, mastro->size, SO_REGISTRY_SIZE);
 
     printLedger(mastro);
 
