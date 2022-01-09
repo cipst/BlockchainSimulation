@@ -21,12 +21,28 @@ all: master utente nodo
 
 # GCC solo master
 master : master.c ${H} ${MASTER_H} ${FUNC} ${MASTER_FUNC}
-	${CC} ${CFLAGS} ${FUNC} ${MASTER_FUNC} master.c -o master
+	${CC} ${CFLAGS} ${FUNC} ${MASTER_FUNC} master.c -o master.o
 
 # GCC solo utente
 utente: utente.c ${H} ${USER_H} ${FUNC} ${USER_FUNC}
-	${CC} ${CFLAGS} ${FUNC} ${USER_FUNC} utente.c -o utente
+	${CC} ${CFLAGS} ${FUNC} ${USER_FUNC} utente.c -o utente.o
 
 # GCC solo nodo
 nodo: nodo.c ${H} ${NODE_H} ${FUNC} ${NODE_FUNC}
-	$(CC) ${CFLAGS} ${FUNC} ${NODE_FUNC} nodo.c -o nodo
+	$(CC) ${CFLAGS} ${FUNC} ${NODE_FUNC} nodo.c -o nodo.o
+
+
+## Rimuove tutti gli eseguibili
+clean : clean-master clean-utente clean-nodo
+
+## Rimuove solo il MASTER
+clean-master :
+	rm -f master.o
+
+## Rimuove solo UTENTE
+clean-utente :
+	rm -f utente.o
+
+## rimuve solo NODO
+clean-nodo :
+	rm -f nodo.o
