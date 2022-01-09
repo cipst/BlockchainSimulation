@@ -190,13 +190,12 @@ int alreadyVisited(transaction* lastVisited, transaction* trans);
 
 /** Calcola il bilancio delle transazioni presenti nel Libro Mastro 
  * 
- * @param mastro puntatore al libro mastro
  * @param identifier pid/ID unico per riconoscimento di utente/nodo
  * @param lastVisited puntatore all'ultima transazione visitata (già contata dal libro mastro)
  * 
  * @return il bilancio (entrate) delle transazioni che l'utente ha ricevuto
  */
-int balanceFromLedger(ledger* mastro, pid_t identifier, transaction* lastVisited);
+int balanceFromLedger(pid_t identifier, transaction* lastVisited);
 
 /* Aspetta un quanto di tempo random compreso tra MIN e MAX */
 void sleepTransaction(long min, long max);

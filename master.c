@@ -1,6 +1,6 @@
 #include "./headers/master.h"
 
-#define DEBUG
+/* #define DEBUG */
 
 int i, j, stop = 0;
 

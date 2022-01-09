@@ -1,6 +1,6 @@
 #include "./headers/nodo.h"
 
-#define DEBUG
+/* #define DEBUG */
 
 block b; /* blocco candidato */
 
@@ -35,10 +35,6 @@ int main(int argc, char** argv) {
         perror(RED "[NODE] Sigaction: Failed to assign SIGSEGV to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
-    if (sigaction(SIGUSR1, &act, NULL) < 0) {
-        perror(RED "[NODE] Sigaction: Failed to assign SIGUSR1 to custom handler" RESET);
-        exit(EXIT_FAILURE);
-    }
 
     initIPCs('n'); /* inizializzo le risorse IPC */
 
@@ -65,7 +61,7 @@ int main(int argc, char** argv) {
         message msg;
 
         reserveSem(semId, nodeShm); /* aggiorno il bilancio */
-        (*balance) += balanceFromLedger(mastro, getpid(), &lastVisited);
+        (*balance) += balanceFromLedger(getpid(), &lastVisited);
         releaseSem(semId, nodeShm);
 
         while (msgrcv(messageQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0) {
@@ -90,10 +86,10 @@ int main(int argc, char** argv) {
             if (updateLedger(&b) == 0) {
                 if (removeBlockFromPool(&b) == -1) {
                     reserveSem(semId, print);
-                    printf("[ %s%d%s ] Error while deleting the block\n", BLUE, getpid(), RESET);
+                    printf("[ %s%d%s ] %sError%s while deleting the block\n", BLUE, getpid(), RESET, RED, RESET);
                     releaseSem(semId, print);
 
-                    printBlock(&b);
+                    /* printBlock(&b); */
 
                     shmdt(users);
                     shmdt(nodes);

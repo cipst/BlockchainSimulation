@@ -1,6 +1,6 @@
 #include "./headers/utente.h"
 
-#define DEBUG
+/* #define DEBUG */
 
 int i, j;
 
@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 
     while (1) {
         reserveSem(semId, userShm); /* aggiorno il bilancio */
-        (*balance) += balanceFromLedger(mastro, getpid(), &lastVisited);
+        (*balance) += balanceFromLedger(getpid(), &lastVisited);
         releaseSem(semId, userShm);
 
 #ifdef DEBUG
