@@ -1,4 +1,4 @@
-#include "header.h"
+#include "./headers/master.h"
 
 #define DEBUG
 
@@ -7,6 +7,8 @@ int i, j, stop = 0;
 int main(int argc, char** argv) {
     if (argc != 1) /* controllo sul numero di argomenti */
         error("Usage: ./master");
+
+    system("./ipcrm.sh"); /* rimuovo eventuali risorse IPC rimaste da un'esecuzione non terminata correttamente */
 
     printf("[ %s%smaster - %d%s ] Init IPC objects and all necessary resources. \n", BOLD, GREEN, getpid(), RESET);
 
@@ -45,12 +47,12 @@ int main(int argc, char** argv) {
         perror(RED "Sigaction: Failed to assign SIGUSR1 to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
-
-    /* »»»»»»»»»» SEMAFORI »»»»»»»»»» */
-    if ((semId = semget(ftok("./utils/private-key", 's'), 6, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
-        perror(RED "Semaphore pool creation failure" RESET);
+    if (sigaction(SIGUSR2, &act, NULL) < 0) {
+        perror(RED "Sigaction: Failed to assign SIGUSR2 to custom handler" RESET);
         exit(EXIT_FAILURE);
     }
+
+    initIPCs('m'); /* inizializzo le risorse IPC */
 
     if (initSemAvailable(semId, userSync) < 0) { /* semaforo per l'accesso alla memoria condivisa di sincronizzazione degli Utenti */
         perror(RED "Failed to initialize semaphore 0" RESET);
@@ -81,66 +83,6 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    /* »»»»»»»»»» MEMORIE CONDIVISE »»»»»»»»»» */
-    if ((shmLedgerId = shmget(ftok("./utils/private-key", 'l'), sizeof(ledger), IPC_CREAT | IPC_EXCL | 0644)) < 0) {
-        perror(RED "Shared Memory creation failure [LEDGER]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    mastro = (ledger*)shmat(shmLedgerId, NULL, 0);
-    if (mastro == (void*)-1) {
-        perror(RED "Shared Memory attach failure [LEDGER]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(userProcess) * SO_USERS_NUM, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
-        perror(RED "Shared Memory creation failure [USERS]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    users = (userProcess*)shmat(shmUsersId, NULL, 0);
-    if (users == (void*)-1) {
-        perror(RED "Shared Memory attach failure [USERS]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(nodeProcess) * SO_NODES_NUM, IPC_CREAT | IPC_EXCL | 0644)) < 0) {
-        perror(RED "Shared Memory creation failure [NODES]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    nodes = (nodeProcess*)shmat(shmNodesId, NULL, 0);
-    if (nodes == (void*)-1) {
-        perror(RED "Shared Memory attach failure [NODES]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* per sincronizzare i processi utente alla creazione iniziale, e dare loro il via con le operazioni */
-    shmActiveUsersId = shmget(ftok("./utils/key-private", 'a'), sizeof(int), IPC_CREAT | IPC_EXCL | 0644);
-    if (shmActiveUsersId < 0) {
-        perror(RED "Shared Memory creation failure [ActiveUsers]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    activeUsers = (int*)shmat(shmActiveUsersId, NULL, 0);
-    if (activeUsers == (void*)-1) {
-        perror(RED "Shared Memory attach failure [ActiveUsers]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* per sincronizzare i processi nodo alla creazione iniziale, e dare loro il via con le operazioni */
-    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | IPC_EXCL | 0644);
-    if (shmActiveNodesId < 0) {
-        perror(RED "Shared Memory creation failure [ActiveNodes]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
-    if (activeNodes == (void*)-1) {
-        perror(RED "Shared Memory attach failure [ActiveNodes]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
     /* Inizializzo activeUsers a 0 => nessun processo 'utente' è attivo */
     reserveSem(semId, userSync);
     *activeUsers = 0;
@@ -153,7 +95,7 @@ int main(int argc, char** argv) {
 
     printIpcStatus(); /* stato degli oggetti IPC */
 
-    sleep(3);
+    sleep(1);
 
     reserveSem(semId, userShm);
     reserveSem(semId, nodeShm);
@@ -166,37 +108,31 @@ int main(int argc, char** argv) {
                 break;
 
             case 0: {
+                char* arg[8]; /* salvo le informazioni da passare al processo nodo */
                 char usersNum[12];
                 char nodesNum[12];
-                char budgetInit[12];
                 char tpSize[12];
                 char minTransProc[12];
                 char maxTransProc[12];
-                char retry[12];
                 char offset[12];
-                char* arg[10]; /* salvo le informazioni da passare al processo nodo */
 
                 sprintf(usersNum, "%d", SO_USERS_NUM);
                 sprintf(nodesNum, "%d", SO_NODES_NUM);
-                sprintf(budgetInit, "%d", SO_BUDGET_INIT);
                 sprintf(tpSize, "%d", SO_TP_SIZE);
                 sprintf(minTransProc, "%ld", SO_MIN_TRANS_PROC_NSEC);
                 sprintf(maxTransProc, "%ld", SO_MAX_TRANS_PROC_NSEC);
-                sprintf(retry, "%d", SO_RETRY);
                 sprintf(offset, "%d", i);
 
-                arg[0] = "./nodo";
+                arg[0] = "nodo";
                 arg[1] = usersNum;
                 arg[2] = nodesNum;
-                arg[3] = budgetInit;
-                arg[4] = tpSize;
-                arg[5] = minTransProc;
-                arg[6] = maxTransProc;
-                arg[7] = retry;
-                arg[8] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
-                arg[9] = NULL;
+                arg[3] = tpSize;
+                arg[4] = minTransProc;
+                arg[5] = maxTransProc;
+                arg[6] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
+                arg[7] = NULL;
 
-                if (execv("./nodo", arg) < 0)
+                if (execv("nodo", arg) < 0)
                     perror(RED "Failed to launch execv [NODO]" RESET);
 
                 break;
@@ -217,6 +153,7 @@ int main(int argc, char** argv) {
                 break;
 
             case 0: {
+                char* arg[10]; /* salvo le informazioni da passare al processo nodo */
                 char usersNum[12];
                 char nodesNum[12];
                 char budgetInit[12];
@@ -225,7 +162,6 @@ int main(int argc, char** argv) {
                 char maxTransGen[12];
                 char retry[12];
                 char offset[12];
-                char* arg[10]; /* salvo le informazioni da passare al processo utente */
 
                 sprintf(usersNum, "%d", SO_USERS_NUM);
                 sprintf(nodesNum, "%d", SO_NODES_NUM);
@@ -236,7 +172,7 @@ int main(int argc, char** argv) {
                 sprintf(retry, "%d", SO_RETRY);
                 sprintf(offset, "%d", i);
 
-                arg[0] = "./utente";
+                arg[0] = "utente";
                 arg[1] = usersNum;
                 arg[2] = nodesNum;
                 arg[3] = budgetInit;
@@ -310,18 +246,37 @@ int main(int argc, char** argv) {
 #endif
 
     while (1) {
-        /* int status;
-        pid_t term = wait(&status); */
+        int status, k;
+        pid_t term = wait(&status);
 
-#ifdef DEBUG
+        if (term != -1) {
+            printf("\n[ %smaster%s ] Users terminated prematurely: %s%d%s%s\n", YELLOW, RESET, CYAN, term, (WIFEXITED(status) ? " EXITED" : ""), RESET);
+        }
+
+        sleep(1);
+
         reserveSem(semId, print);
-        /* printf("\n[ %smaster%s ] Users terminated prematurely: %s%d%s%s\n", YELLOW, RESET, CYAN, term, (WIFEXITED(status) ? " EXITED" : ""), RESET); */
+
         reserveSem(semId, userSync);
         printf("[ %s%smaster%s ] User active: %d\n", BOLD, GREEN, RESET, *activeUsers);
         releaseSem(semId, userSync);
-        releaseSem(semId, print);
 
-        sleep(1);
-#endif
+        reserveSem(semId, nodeSync);
+        printf("[ %s%smaster%s ] Node active: %d\n", BOLD, GREEN, RESET, *activeNodes);
+        releaseSem(semId, nodeSync);
+
+        reserveSem(semId, userShm);
+        printf("\t[ %s%smaster%s ] Balance of every users:\n", BOLD, GREEN, RESET);
+        for (k = 0; k < SO_USERS_NUM; ++k)
+            printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, RESET, (users + k)->balance);
+        releaseSem(semId, userShm);
+
+        reserveSem(semId, nodeShm);
+        printf("\t[ %s%smaster%s ] Balance of every nodes:\n", BOLD, GREEN, RESET);
+        for (k = 0; k < SO_NODES_NUM; ++k)
+            printf("\t\t [ %s%d%s ] Balance: %d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance);
+        releaseSem(semId, nodeShm);
+
+        releaseSem(semId, print);
     }
 }
