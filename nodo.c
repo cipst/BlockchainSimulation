@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
 
         if (createBlock(&b, &removePos) == 0) {
             reserveSem(semId, print);
-            printf("\n[ %s%d%s ] Block created\n", BLUE, getpid(), RESET);
+            printf("\n\t[ %s%d%s ] %s%sNEW BLOCK%s\n", BLUE, getpid(), RESET, BOLD, GREEN, RESET);
 
             printBlock(&b);
             releaseSem(semId, print);

@@ -3,6 +3,8 @@
 
 #include "header.h"
 
+transaction* pool; /* transaction pool che conterrà tutte le transazioni di un nodo */
+
 /** Aggiunge una transazione alla transaction pool
  * 
  * @param pos   riferimento alla posizione corrente nella transaction pool

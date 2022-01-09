@@ -17,6 +17,7 @@
 
 #include "sem.h"
 
+/* FOREGROUND COLOR */
 #define BLACK "\033[30m"
 #define RED "\033[31m"
 #define GREEN "\033[32m"
@@ -25,10 +26,20 @@
 #define MAGENTA "\033[35m"
 #define CYAN "\033[36m"
 #define WHITE "\033[37m"
-#define YELLOW_BKG "\033[103m" /* YELLOW BACKGROUND */
+
 #define UNDELINE "\033[4m"
 #define BOLD "\033[1m"
 #define RESET "\033[0m"
+
+/* BACKGROUND COLOR */
+#define BLACK_BKG "\033[40m"
+#define RED_BKG "\033[41m"
+#define GREEN_BKG "\033[42m"
+#define YELLOW_BKG "\033[43m"
+#define BLUE_BKG "\033[44m"
+#define MAGENTA_BKG "\033[45m"
+#define CYAN_BKG "\033[46m"
+#define WHITE_BKG "\033[47m"
 
 #define specialSender (-1)
 
@@ -125,7 +136,6 @@ nodeProcess* nodes;      /* informazione sui nodi in memoria condivisa */
 int* activeUsers;        /* conteggio dei processi utente attivi in shared memory */
 int* activeNodes;        /* conteggio dei processi nodo attivi in shared memory */
 transaction lastVisited; /* ultima transazione visitata per il conteggio del bilancio */
-transaction* pool;       /* transaction pool che conterrà tutte le transazioni di un nodo */
 
 /**
  * »»»»»»»»»» INTESTAZIONI »»»»»»»»»»

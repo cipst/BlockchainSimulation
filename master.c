@@ -6,7 +6,7 @@ int i, j, stop = 0;
 
 int main(int argc, char** argv) {
     if (argc != 1) /* controllo sul numero di argomenti */
-        error("Usage: ./master");
+        error("Usage: ./master.o");
 
     system("./ipcrm.sh"); /* rimuovo eventuali risorse IPC rimaste da un'esecuzione non terminata correttamente */
 
@@ -132,8 +132,10 @@ int main(int argc, char** argv) {
                 arg[6] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
                 arg[7] = NULL;
 
-                if (execv("nodo", arg) < 0)
+                if (execv("./nodo.o", arg) < 0) {
                     perror(RED "Failed to launch execv [NODO]" RESET);
+                    exit(EXIT_FAILURE);
+                }
 
                 break;
             }
@@ -183,8 +185,10 @@ int main(int argc, char** argv) {
                 arg[8] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
                 arg[9] = NULL;
 
-                if (execv("./utente", arg) < 0)
+                if (execv("./utente.o", arg) < 0) {
                     perror(RED "Failed to launch execv [UTENTE]" RESET);
+                    exit(EXIT_FAILURE);
+                }
 
                 break;
             }
