@@ -1,15 +1,18 @@
-#include "header.h"
+#include "./headers/nodo.h"
 
 #define DEBUG
 
-transaction* pool;
+block b; /* blocco candidato */
 
-int i, j, pos = 0;
+int i, j;
+unsigned int insertPos = 0;
+unsigned int removePos = 0;
 
 int main(int argc, char** argv) {
     initVariable(argv);
 
-    pool = (transaction*)malloc(sizeof(transaction) * SO_TP_SIZE); /* transaction pool che conterrà tutte le transazioni di questo nodo */
+    pool = (transaction*)calloc(SO_TP_SIZE, sizeof(transaction));
+    b.size = 0; /* inizializzo la grandezza del blocco candidato a 0 */
 
     /* Copia il carattere \0 in act per tutta la sua lunghezza */
     memset(&act, '\0', sizeof(act));
@@ -37,64 +40,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    /* »»»»»»»»»» SEMAFORI »»»»»»»»»» */
-    if ((semId = semget(ftok("./utils/private-key", 's'), 6, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Semaphore pool creation failure" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* »»»»»»»»»» MEMORIE CONDIVISE »»»»»»»»»» */
-    if ((shmLedgerId = shmget(ftok("./utils/private-key", 'l'), sizeof(ledger), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [LEDGER]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    mastro = (ledger*)shmat(shmLedgerId, NULL, 0);
-    if (mastro == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [LEDGER]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    if ((shmUsersId = shmget(ftok("./utils/private-key", 'u'), sizeof(userProcess) * SO_USERS_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [USERS]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    users = (userProcess*)shmat(shmUsersId, NULL, 0);
-    if (users == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [USERS]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    if ((shmNodesId = shmget(ftok("./utils/private-key", 'n'), sizeof(nodeProcess) * SO_NODES_NUM, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [NODES]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    nodes = (nodeProcess*)shmat(shmNodesId, NULL, 0);
-    if (nodes == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [NODES]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* per sincronizzare i processi nodo alla creazione iniziale, e dare loro il via con le operazioni */
-    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
-    if (shmActiveNodesId < 0) {
-        perror(RED "[NODE] Shared Memory creation failure [ActiveNodes]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
-    if (activeNodes == (void*)-1) {
-        perror(RED "[NODE] Shared Memory attach failure [ActiveNodes]" RESET);
-        exit(EXIT_FAILURE);
-    }
-
-    /* »»»»»»»»»» CODA DI MESSAGGI »»»»»»»»»» */
-    if ((queueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "[NODE] Message Queue creation failure" RESET);
-        exit(EXIT_FAILURE);
-    }
+    initIPCs('n'); /* inizializzo le risorse IPC */
 
     reserveSem(semId, nodeSync);
     (*activeNodes)++;
@@ -109,52 +55,68 @@ int main(int argc, char** argv) {
     srand(time(NULL) % getpid()); /* randomize seed */
 
     reserveSem(semId, nodeShm);
-    (nodes + offset)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
-    (nodes + offset)->balance = 0;    /* inizializzo il bilancio del nodo a 0 */
+    (nodes + offset)->pid = getpid();       /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
+    (nodes + offset)->balance = 0;          /* inizializzo il bilancio del nodo a 0 */
+    (nodes + offset)->poolSize = 0;         /* inizializzo la grandezza della transaction pool a 0 */
+    balance = &((nodes + offset)->balance); /* RIFERIMENTO al bilancio */
     releaseSem(semId, nodeShm);
 
     while (1) {
         message msg;
 
-        if (msgrcv(queueId, &msg, sizeof(msg) - sizeof(long), getpid(), MSG_NOERROR) < 0) {
-            perror(RED "[NODE] Error in msgrcv()" RESET);
-            exit(EXIT_FAILURE);
+        reserveSem(semId, nodeShm); /* aggiorno il bilancio */
+        (*balance) += balanceFromLedger(mastro, getpid(), &lastVisited);
+        releaseSem(semId, nodeShm);
+
+        while (msgrcv(messageQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0) {
+            if (addTransaction(&insertPos, msg.transaction) == -1) {
+                msg.mtype = (long)msg.transaction.sender;
+                if (msgsnd(responseQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
+                    perror(RED "[NODE] Error in msgsnd()" RESET);
+                    exit(EXIT_FAILURE);
+                }
+            }
         }
 
-#ifdef DEBUG
-        reserveSem(semId, print);
-        printf("[ %s%d%s ] Transaction : %s(%lu, %d, %d)%s\n", BLUE, getpid(), RESET, YELLOW, msg.transaction.timestamp, msg.transaction.sender, msg.transaction.receiver, RESET);
-        releaseSem(semId, print);
-#endif
+        if (createBlock(&b, &removePos) == 0) {
+            reserveSem(semId, print);
+            printf("\n[ %s%d%s ] Block created\n", BLUE, getpid(), RESET);
 
-        /* TEST */
-        /* DELETE */
-        mastro->block[mastro->size].transaction[mastro->block[mastro->size].size] = msg.transaction;
-        mastro->block[mastro->size].size++;
-        mastro->size++;
+            printBlock(&b);
+            releaseSem(semId, print);
 
-        pos = addTransaction(msg.transaction, pool, pos);
+            sleepTransaction(SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_PROC_NSEC);
 
-        /* kill(msg.transaction.sender, SIGUSR2); */
+            if (updateLedger(&b) == 0) {
+                if (removeBlockFromPool(&b) == -1) {
+                    reserveSem(semId, print);
+                    printf("[ %s%d%s ] Error while deleting the block\n", BLUE, getpid(), RESET);
+                    releaseSem(semId, print);
 
-        /* // pos < SO_TP_SIZE 
-        if (100 < SO_TP_SIZE) {
-            *(pool + pos) = msg.transaction;  // salvo la transazione nella transaction pool
-            printTransaction(*(pool + pos));
-            pos++;
-        } else {
-            reserveSem(semId, 1);
-            printf("[%d] TIMESTAMP LETTO: %ld\n", getpid(), msg.transaction.timestamp);
-            releaseSem(semId, 1);
-            kill(msg.transaction.sender, SIGUSR2);
-        } */
+                    printBlock(&b);
+
+                    shmdt(users);
+                    shmdt(nodes);
+                    shmdt(mastro);
+                    shmdt(activeNodes);
+                    msgctl(messageQueueId, IPC_RMID, NULL);
+
+                    exit(EXIT_FAILURE);
+                }
+
+                /* svuoto il blocco */
+                memset(&b, 0, sizeof(block));
+            } else {
+                kill(getppid(), SIGUSR2); /* informo il master che il Libro Mastro è pieno */
+            }
+        }
+
+        sleep(2);
     }
-
-    printf("\t%d Termino...\n", getpid());
 
     shmdt(mastro);
     shmdt(users);
     shmdt(nodes);
-    free(pool);
+
     exit(EXIT_SUCCESS);
 }
