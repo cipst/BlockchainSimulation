@@ -46,8 +46,8 @@
 /**
  *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»» 
  **/
-#define SO_BLOCK_SIZE 4    /* numero di transazioni massime presenti in un blocco del libro mastro */
-#define SO_REGISTRY_SIZE 4 /* numero di blocchi massimi presenti nel libro mastro */
+#define SO_BLOCK_SIZE 10       /* numero di transazioni massime presenti in un blocco del libro mastro */
+#define SO_REGISTRY_SIZE 10000 /* numero di blocchi massimi presenti nel libro mastro */
 
 /**
  *  »»»»»»»»»» VARIABILI di Configurazione »»»»»»»»»»
@@ -81,7 +81,7 @@ int shmActiveNodesId; /* ftok(..., 'g') => 'g': active node process */
 int messageQueueId;   /* ftok(..., 'q') => 'q': message queue */
 int responseQueueId;  /* ftok(..., 'r') => 'r': response queue */
 
-int* balance; /* RIFERIMENTO contenente il bilancio di ogni processo (RIFERIMENTO a (users+offset)->balance oppure (nodes+offset)->balance) */
+/* int* balance;  */ /* RIFERIMENTO contenente il bilancio di ogni processo (RIFERIMENTO a (users+offset)->balance oppure (nodes+offset)->balance) */
 
 /**
  * »»»»»»»»»» STRUTTURE DATI »»»»»»»»»»
