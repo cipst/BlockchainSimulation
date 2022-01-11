@@ -51,29 +51,28 @@ int main(int argc, char** argv) {
     (users + offset)->pid = getpid();           /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista degli utenti */
     (users + offset)->balance = SO_BUDGET_INIT; /* inizializzo il bilancio a SO_BUDGET_INIT */
     (users + offset)->alive = 0;                /* inizializzo lo stato dell'utente a VIVO */
-    balance = &((users + offset)->balance);     /* RIFERIMENTO al bilancio */
     releaseSem(semId, userShm);
 
 #ifdef DEBUG
     reserveSem(semId, print);
-    printf("[ %s%d%s ] BILANCIO INIZIALE: %d\n", CYAN, getpid(), RESET, *balance);
+    printf("[ %s%d%s ] BILANCIO INIZIALE: %d\n", CYAN, getpid(), RESET, (users + offset)->balance);
     releaseSem(semId, print);
 #endif
 
     while (1) {
         reserveSem(semId, userShm); /* aggiorno il bilancio */
-        (*balance) += balanceFromLedger(getpid(), &lastVisited);
+        (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
         releaseSem(semId, userShm);
 
 #ifdef DEBUG
         reserveSem(semId, print);
-        printf("[ %s%d%s ] %s%sBALANCE%s %s%d%s $\n", CYAN, getpid(), RESET, BOLD, YELLOW, RESET, BOLD, *balance, RESET);
+        printf("[ %s%d%s ] %s%sBALANCE%s %s%d%s $\n", CYAN, getpid(), RESET, BOLD, YELLOW, RESET, BOLD, (users + offset)->balance, RESET);
         releaseSem(semId, print);
 #endif
 
         receiveResponse();
 
-        if ((*balance) >= 2) {
+        if (((users + offset)->balance) >= 2) {
             transaction trans;
 
             trans = createTransaction();
@@ -86,20 +85,18 @@ int main(int argc, char** argv) {
             releaseSem(semId, print);
 
             reserveSem(semId, userShm);
-            (*balance) -= (trans.quantity + trans.reward);
+            (users + offset)->balance -= (trans.quantity + trans.reward);
             releaseSem(semId, userShm);
 
-            /* sleepTransaction(SO_MIN_TRANS_GEN_NSEC, SO_MAX_TRANS_GEN_NSEC); */
+            sleepTransaction(SO_MIN_TRANS_GEN_NSEC, SO_MAX_TRANS_GEN_NSEC);
         } else {
 #ifdef DEBUG
             reserveSem(semId, print);
-            printf("[ %s%d%s ] Insufficient funds: %d\n", CYAN, getpid(), RESET, *balance);
+            printf("[ %s%d%s ] Insufficient funds: %d\n", CYAN, getpid(), RESET, (users + offset)->balance);
             releaseSem(semId, print);
             sleep(1);
 #endif
         }
-
-        sleep(2);
     }
 
     exit(EXIT_SUCCESS);

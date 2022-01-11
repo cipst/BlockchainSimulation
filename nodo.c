@@ -51,17 +51,16 @@ int main(int argc, char** argv) {
     srand(time(NULL) % getpid()); /* randomize seed */
 
     reserveSem(semId, nodeShm);
-    (nodes + offset)->pid = getpid();       /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
-    (nodes + offset)->balance = 0;          /* inizializzo il bilancio del nodo a 0 */
-    (nodes + offset)->poolSize = 0;         /* inizializzo la grandezza della transaction pool a 0 */
-    balance = &((nodes + offset)->balance); /* RIFERIMENTO al bilancio */
+    (nodes + offset)->pid = getpid(); /* salvo il PID del processo in esecuzione nella memoria condivisa con la lista dei nodi */
+    (nodes + offset)->balance = 0;    /* inizializzo il bilancio del nodo a 0 */
+    (nodes + offset)->poolSize = 0;   /* inizializzo la grandezza della transaction pool a 0 */
     releaseSem(semId, nodeShm);
 
     while (1) {
         message msg;
 
         reserveSem(semId, nodeShm); /* aggiorno il bilancio */
-        (*balance) += balanceFromLedger(getpid(), &lastVisited);
+        ((nodes + offset)->balance) += balanceFromLedger(getpid(), &lastVisited);
         releaseSem(semId, nodeShm);
 
         while (msgrcv(messageQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0) {
@@ -76,7 +75,7 @@ int main(int argc, char** argv) {
 
         if (createBlock(&b, &removePos) == 0) {
             reserveSem(semId, print);
-            printf("\n\t[ %s%d%s ] %s%sNEW BLOCK%s\n", BLUE, getpid(), RESET, BOLD, GREEN, RESET);
+            printf("\n[ %s%d%s ] %s%sNEW BLOCK%s\n", BLUE, getpid(), RESET, BOLD, GREEN, RESET);
 
             printBlock(&b);
             releaseSem(semId, print);
@@ -84,6 +83,10 @@ int main(int argc, char** argv) {
             sleepTransaction(SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_PROC_NSEC);
 
             if (updateLedger(&b) == 0) {
+                reserveSem(semId, print);
+                printf("\n[ %s%d%s ] %s%sADDED TO THE LEDGER%s\n", BLUE, getpid(), RESET, BOLD, YELLOW, RESET);
+                releaseSem(semId, print);
+
                 if (removeBlockFromPool(&b) == -1) {
                     reserveSem(semId, print);
                     printf("[ %s%d%s ] %sError%s while deleting the block\n", BLUE, getpid(), RESET, RED, RESET);
@@ -103,11 +106,12 @@ int main(int argc, char** argv) {
                 /* svuoto il blocco */
                 memset(&b, 0, sizeof(block));
             } else {
+                reserveSem(semId, print);
+                printf("\n[ %s%d%s ] %s%sNOT ADDED TO THE LEDGER%s\n", BLUE, getpid(), RESET, BOLD, RED, RESET);
+                releaseSem(semId, print);
                 kill(getppid(), SIGUSR2); /* informo il master che il Libro Mastro è pieno */
             }
         }
-
-        sleep(2);
     }
 
     shmdt(mastro);
