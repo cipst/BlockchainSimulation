@@ -223,7 +223,7 @@ int main(int argc, char** argv) {
 
         sleep(1);
     }
-
+ 
 #ifdef DEBUG
     reserveSem(semId, print);
     reserveSem(semId, userSync);
@@ -241,6 +241,8 @@ int main(int argc, char** argv) {
     releaseSem(semId, userShm);
     releaseSem(semId, nodeShm);
 
+    srand(time(NULL) % getpid()); /* randomize seed */
+
     alarm(SO_SIM_SEC);
 
 #ifdef DEBUG
@@ -250,19 +252,14 @@ int main(int argc, char** argv) {
 #endif
 
     while (1) {
-        int status, k;
-        pid_t term = wait(&status);
-
-        if (term != -1) {
-            printf("\n[ %smaster%s ] Users terminated prematurely: %s%d%s%s\n", YELLOW, RESET, CYAN, term, (WIFEXITED(status) ? " EXITED" : ""), RESET);
-        }
+        int k;
 
         sleep(1);
 
         reserveSem(semId, print);
 
         reserveSem(semId, userSync);
-        printf("[ %s%smaster%s ] User active: %d\n", BOLD, GREEN, RESET, *activeUsers);
+        printf("\n[ %s%smaster%s ] User active: %d\n", BOLD, GREEN, RESET, *activeUsers);
         releaseSem(semId, userSync);
 
         reserveSem(semId, nodeSync);
@@ -270,17 +267,24 @@ int main(int argc, char** argv) {
         releaseSem(semId, nodeSync);
 
         reserveSem(semId, userShm);
-        printf("\t[ %s%smaster%s ] Balance of every users:\n", BOLD, GREEN, RESET);
+        printf("[ %s%smaster%s ] Balance of every users:\n", BOLD, GREEN, RESET);
         for (k = 0; k < SO_USERS_NUM; ++k)
-            printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, RESET, (users + k)->balance);
+            printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, RESET, (users + k)->balance);
         releaseSem(semId, userShm);
 
         reserveSem(semId, nodeShm);
-        printf("\t[ %s%smaster%s ] Balance of every nodes:\n", BOLD, GREEN, RESET);
+        printf("[ %s%smaster%s ] Balance of every nodes:\n", BOLD, GREEN, RESET);
         for (k = 0; k < SO_NODES_NUM; ++k)
-            printf("\t\t [ %s%d%s ] Balance: %d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance);
+            printf("\t [ %s%d%s ] Balance: %d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance);
         releaseSem(semId, nodeShm);
 
+        printf("\n");
+
         releaseSem(semId, print);
+
+        if ((rand() % 5) == 0) {
+            int userOffset = (rand() % SO_USERS_NUM);
+            kill((users + userOffset)->pid, SIGUSR1);
+        }
     }
 }
