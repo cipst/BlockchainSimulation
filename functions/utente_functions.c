@@ -21,11 +21,13 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             reserveSem(semId, print);
             printf("\n\t[ %s%d%s ] %sSIGINT%s received\n", CYAN, getpid(), RESET, YELLOW, RESET);
             releaseSem(semId, print);
-            exit(EXIT_SUCCESS);
+
+            exit(EXIT_FAILURE);
 
         case SIGTERM:
             (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
             releaseSem(semId, userShm);
+
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -34,7 +36,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             reserveSem(semId, print);
             printf("\n\t[ %s%d%s ] %sSIGTERM%s received\n", CYAN, getpid(), RESET, YELLOW, RESET);
             releaseSem(semId, print);
-            exit(EXIT_SUCCESS);
+            exit(EXIT_FAILURE);
 
         case SIGSEGV:
             releaseSem(semId, userShm);
@@ -49,10 +51,19 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
         case SIGUSR1: {
             transaction trans;
             reserveSem(semId, print);
-            printf("\n[ %sSIGUSR1%s ] Transaction creation due to SIGUSR1\n", YELLOW, RESET);
+            printf("\n[ %sSIGUSR1%s ] %s%d%s - Transaction creation due to SIGUSR1 from %s%s%d%s\n", YELLOW, RESET, CYAN, getpid(), RESET, BOLD, GREEN, siginfo->si_pid, RESET);
             releaseSem(semId, print);
-            trans = createTransaction();
-            sendTransaction(&trans);
+            if ((users + offset)->balance >= 2) {
+                trans = createTransaction();
+
+                reserveSem(semId, print);
+                printf("\t[ %s%d%s ] %s%sNEW%s", CYAN, getpid(), RESET, BOLD, YELLOW, RESET);
+                printTransaction(&trans);
+                printf("\n");
+                releaseSem(semId, print);
+
+                sendTransaction(&trans);
+            }
             break;
         }
     }
@@ -77,7 +88,7 @@ transaction createTransaction() {
     } while (userReceiver == offset || isAlive(userReceiver) == -1); /* cerco la posizione random finché non è diversa dalla posizione dell'utente corrente e finchè non trovo un utente ancora vivo */
 
     reserveSem(semId, userShm);
-    amount = (rand() % ((*balance) - 1)) + 2; /* quantità da inviare: estraggo un numero compreso tra 2 e balance ==> estraggo un numero compreso tra 0 e balance-1 escluso ==> tra 0 e balance-2 e sommo 2 */
+    amount = (rand() % (((users + offset)->balance) - 1)) + 2; /* quantità da inviare: estraggo un numero compreso tra 2 e balance ==> estraggo un numero compreso tra 0 e balance-1 escluso ==> tra 0 e balance-2 e sommo 2 */
 
     trans.receiver = (users + userReceiver)->pid; /* imposto il destinatario della transazione */
     releaseSem(semId, userShm);
@@ -111,7 +122,8 @@ void sendTransaction(transaction* trans) {
 
 #ifdef DEBUG
     reserveSem(semId, print);
-    printf("[ %s%d%s ] Transaction %s%ssended%s: (%lu, %d, %d)\n", CYAN, getpid(), RESET, BOLD, BLUE, RESET, trans->timestamp, trans->sender, trans->receiver);
+    printf("[ %s%d%s ] %s%sSENDED%s: ", CYAN, getpid(), RESET, BOLD, BLUE, RESET);
+    printTransaction(trans);
     releaseSem(semId, print);
 #endif
 }

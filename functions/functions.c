@@ -133,12 +133,6 @@ void printTransaction(transaction* t) {
         printf("\t(%s%s%s%lu%s, %s%d%s → %s%d%s, %s%d%s$, %s%u%s$)\n", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, CYAN, t->sender, RESET, CYAN, t->receiver, RESET, GREEN, t->quantity, RESET, RED, t->reward, RESET);
     else
         printf("\t(%s%s%s%lu%s, %s%s%d%s → %s%d%s, %s%d%s$, %u)\n\n", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, BOLD, MAGENTA, t->sender, RESET, BLUE, t->receiver, RESET, RED, t->quantity, RESET, t->reward);
-
-    /* printf("\t\t  %sTimestamp%s: %lu\n", BLUE, RESET, t->timestamp);
-    printf("\t\t  %sSender%s: %d\n", BLUE, RESET, t->sender);
-    printf("\t\t  %sReceiver%s: %d\n", BLUE, RESET, t->receiver);
-    printf("\t\t  %sQuantity%s: %d\n", BLUE, RESET, t->quantity);
-    printf("\t\t  %sReward%s: %u\n", BLUE, RESET, t->reward); */
 }
 
 void printBlock(block* b) {

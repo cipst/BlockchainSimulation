@@ -61,6 +61,13 @@ int addTransaction(unsigned int* pos, transaction trans) {
         (nodes + offset)->poolSize++; /* aggiorno l'attuale grandezza della transaction pool in memoria condivisa */
         releaseSem(semId, nodeShm);
 
+#ifdef DEBUG
+        reserveSem(semId, print);
+        printf("[ %s%d%s ] %s%sREAD%s: ", BLUE, getpid(), RESET, BOLD, GREEN, RESET);
+        printTransaction(&trans);
+        releaseSem(semId, print);
+#endif
+
         return 0;
     }
     return -1;

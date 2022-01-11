@@ -12,25 +12,29 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 	 **/
 
     switch (sig) {
-        int status;
         pid_t term;
+
         case SIGALRM:
-            if (sigaction(SIGALRM, &act, NULL) < 0) {
+            /* if (sigaction(SIGALRM, &act, NULL) < 0) {
                 perror(RED "Sigaction: Failed to assign SIGALRM to custom handler" RESET);
                 exit(EXIT_FAILURE);
-            }
+            } */
 
             printf("\n%sSO_SIM_SEC%s expired - Termination of the simulation...\n", YELLOW, RESET);
+
             killAll(SIGINT);
 
-            while ((term = wait(&status)) != -1) {
+            while ((term = wait(NULL)) != -1) {
+                /* #ifdef DEBUG */
                 reserveSem(semId, print);
-                printf("\n[ %s%smaster%s ] Process w/ PID %d ended", BOLD, GREEN, RESET, term);
+                fflush(stdout);
+                printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
                 releaseSem(semId, print);
-                sleep(1);
+                /* #endif */
             }
 
             printStats();
+
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -88,7 +92,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             if ((*activeUsers) == 0) { /* tutti gli utenti hanno terminato la loro esecuzione */
                 printf("\n[ %s%smaster%s ] All users ended. %sEnd of the simulation...%s", BOLD, GREEN, RESET, YELLOW, RESET);
                 printStats();
-                killAll(SIGKILL);
+                killAll(SIGINT);
                 shmdt(mastro);
                 shmdt(users);
                 shmdt(nodes);
@@ -104,8 +108,20 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             reserveSem(semId, print);
             printf("[ %sSIGUSR2%s ] Node %s%d%s found %s%sLIBRO MASTRO%s full!\n", YELLOW, RESET, BLUE, siginfo->si_pid, RESET, BOLD, GREEN, RESET);
             releaseSem(semId, print);
+
+            killAll(SIGINT);
+
+            while ((term = wait(NULL)) != -1) {
+                /* #ifdef DEBUG */
+                reserveSem(semId, print);
+                fflush(stdout);
+                printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
+                releaseSem(semId, print);
+                /* #endif */
+            }
+
             printStats();
-            killAll(SIGKILL);
+
             shmdt(mastro);
             shmdt(users);
             shmdt(nodes);
@@ -149,7 +165,6 @@ void printStats() {
     const char aux[] = MAGENTA "STATS" RESET;
 
     reserveSem(semId, print);
-
     printf("\n\n[ %s ] Stats of the simulation\n", aux);
 
     printf("\t[ %s ] Total %susers%s in the simulation: %d\n", aux, CYAN, RESET, SO_USERS_NUM);
@@ -162,7 +177,7 @@ void printStats() {
 
     printf("\n\t[ %s ] Balance of every nodes and number of transactions in TP:\n", aux);
     for (k = 0; k < SO_NODES_NUM; ++k)
-        printf("\t\t [ %s%d%s ] Balance: %d\t|\tTransactions remaining: %d/%d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance, (nodes + k)->poolSize, SO_TP_SIZE);
+        printf("\t\t [ %s%d%s ] Balance: %d | Transactions remaining: %d/%d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance, (nodes + k)->poolSize, SO_TP_SIZE);
 
     reserveSem(semId, userSync);
     printf("\n\t[ %s ] Process terminated prematurely: %d/%d\n", aux, (SO_USERS_NUM - (*activeUsers)), SO_USERS_NUM);
@@ -184,6 +199,7 @@ void readConfigFile() {
 
     fscanf(fp, "SO_USERS_NUM: %d\n", &SO_USERS_NUM);                             /* numero di processi utente che possono inviare denaro ad altri utenti attraverso una transazione */
     fscanf(fp, "SO_NODES_NUM: %d\n", &SO_NODES_NUM);                             /* numero di processi nodo che elaborano, a pagamento, le transazioni ricevute */
+    fscanf(fp, "SO_BUDGET_INIT: %d\n", &SO_BUDGET_INIT);                         /* budget iniziale di ciascun processo utente */
     fscanf(fp, "SO_REWARD: %d\n", &SO_REWARD);                                   /* la percentuale di reward pagata da ogni utente per il processamento di una transazione */
     fscanf(fp, "SO_MIN_TRANS_GEN_NSEC [nsec]: %ld\n", &SO_MIN_TRANS_GEN_NSEC);   /* minimo valore del tempo (espresso in nanosecondi) che trascorre fra la generazione di una transazione e la seguente da parte di un utente */
     fscanf(fp, "SO_MAX_TRANS_GEN_NSEC [nsec]: %ld\n", &SO_MAX_TRANS_GEN_NSEC);   /* massimo valore del tempo (espresso in nanosecondi) che trascorre fra la generazione di una transazione e la seguente da parte di un utente */
@@ -191,7 +207,6 @@ void readConfigFile() {
     fscanf(fp, "SO_TP_SIZE: %d\n", &SO_TP_SIZE);                                 /* numero massimo di transazioni nella transaction pool dei processi nodo */
     fscanf(fp, "SO_MIN_TRANS_PROC_NSEC [nsec]: %ld\n", &SO_MIN_TRANS_PROC_NSEC); /* minimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
     fscanf(fp, "SO_MAX_TRANS_PROC_NSEC [nsec]: %ld\n", &SO_MAX_TRANS_PROC_NSEC); /* massimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
-    fscanf(fp, "SO_BUDGET_INIT: %d\n", &SO_BUDGET_INIT);                         /* budget iniziale di ciascun processo utente */
     fscanf(fp, "SO_SIM_SEC: %ld\n", &SO_SIM_SEC);                                /* durata della simulazione (in secondi) */
     fscanf(fp, "SO_FRIENDS_NUM: %d\n", &SO_FRIENDS_NUM);                         /* IMPORTANT numero di nodi amici dei processi nodo (solo per la versione full) */
     fscanf(fp, "SO_HOPS: %d\n", &SO_HOPS);                                       /* IMPORTANT numero massimo di salti massimo che una transazione può effettuare quando la transaction pool di un nodo è piena (solo per la versione full) */
