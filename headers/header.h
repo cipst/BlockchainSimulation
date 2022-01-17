@@ -46,8 +46,10 @@
 /**
  *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»» 
  **/
-#define SO_BLOCK_SIZE 4       /* numero di transazioni massime presenti in un blocco del libro mastro */
-#define SO_REGISTRY_SIZE 100 /* numero di blocchi massimi presenti nel libro mastro */
+#define SO_BLOCK_SIZE 50       /* numero di transazioni massime presenti in un blocco del libro mastro */
+#define SO_REGISTRY_SIZE 10 /* numero di blocchi massimi presenti nel libro mastro */
+#define TOO_MANY_USERS 50
+#define TOO_MANY_NODES 50
 
 /**
  *  »»»»»»»»»» VARIABILI di Configurazione »»»»»»»»»»
@@ -159,8 +161,6 @@ void hdl(int, siginfo_t*, void*);
 /* Inizializza tutte le struture IPC necessarie */
 void initIPCs(char);
 
-void removeIPCs();
-
 /** Stampa a video le informazioni di una transazione
  * 
  * @param t Transazione
@@ -199,5 +199,11 @@ int balanceFromLedger(pid_t identifier, transaction* lastVisited);
 
 /* Aspetta un quanto di tempo random compreso tra MIN e MAX */
 void sleepTransaction(long min, long max);
+
+/** Stampa solo i processi con maggior e minor budget
+ *  
+ * @param type tipo di processo: 'u' -> utente; 'n' -> nodo;
+ */
+void tooManyProcess(char type);
 
 #endif
