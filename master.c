@@ -223,7 +223,7 @@ int main(int argc, char** argv) {
 
         sleep(1);
     }
- 
+
 #ifdef DEBUG
     reserveSem(semId, print);
     reserveSem(semId, userSync);
@@ -267,15 +267,23 @@ int main(int argc, char** argv) {
         releaseSem(semId, nodeSync);
 
         reserveSem(semId, userShm);
-        printf("[ %s%smaster%s ] Balance of every users:\n", BOLD, GREEN, RESET);
-        for (k = 0; k < SO_USERS_NUM; ++k)
-            printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, RESET, (users + k)->balance);
+        if (SO_USERS_NUM > TOO_MANY_USERS) {
+            tooManyProcess('u');
+        } else {
+            printf("[ %s%smaster%s ] Balance of every users:\n", BOLD, GREEN, RESET);
+            for (k = 0; k < SO_USERS_NUM; ++k)
+                printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, RESET, (users + k)->balance);
+        }
         releaseSem(semId, userShm);
 
         reserveSem(semId, nodeShm);
-        printf("[ %s%smaster%s ] Balance of every nodes:\n", BOLD, GREEN, RESET);
-        for (k = 0; k < SO_NODES_NUM; ++k)
-            printf("\t [ %s%d%s ] Balance: %d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance);
+        if (SO_NODES_NUM > TOO_MANY_NODES) {
+            tooManyProcess('n');
+        } else {
+            printf("[ %s%smaster%s ] Balance of every nodes:\n", BOLD, GREEN, RESET);
+            for (k = 0; k < SO_NODES_NUM; ++k)
+                printf("\t [ %s%d%s ] Balance: %d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance);
+        }
         releaseSem(semId, nodeShm);
 
         printf("\n");
