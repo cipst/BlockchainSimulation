@@ -89,6 +89,7 @@ int main(int argc, char** argv) {
             releaseSem(semId, userShm);
 
             sleepTransaction(SO_MIN_TRANS_GEN_NSEC, SO_MAX_TRANS_GEN_NSEC);
+            /* sleep(1); */
         } else {
 #ifdef DEBUG
             reserveSem(semId, print);

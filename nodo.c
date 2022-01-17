@@ -80,6 +80,7 @@ int main(int argc, char** argv) {
             printBlock(&b);
             releaseSem(semId, print);
 
+            /* sleep(1); */
             sleepTransaction(SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_PROC_NSEC);
 
             if (updateLedger(&b) == 0) {
