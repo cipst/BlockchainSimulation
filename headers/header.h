@@ -46,8 +46,8 @@
 /**
  *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»» 
  **/
-#define SO_BLOCK_SIZE 10       /* numero di transazioni massime presenti in un blocco del libro mastro */
-#define SO_REGISTRY_SIZE 10000 /* numero di blocchi massimi presenti nel libro mastro */
+#define SO_BLOCK_SIZE 4       /* numero di transazioni massime presenti in un blocco del libro mastro */
+#define SO_REGISTRY_SIZE 100 /* numero di blocchi massimi presenti nel libro mastro */
 
 /**
  *  »»»»»»»»»» VARIABILI di Configurazione »»»»»»»»»»

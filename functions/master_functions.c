@@ -228,8 +228,8 @@ void readConfigFile() {
     if (SO_MAX_TRANS_GEN_NSEC <= SO_MIN_TRANS_GEN_NSEC)
         error("SO_MAX_TRANS_GEN_NSEC must be greater than SO_MIN_TRANS_GEN_NSEC.");
 
-    if (SO_RETRY < 0)
-        error("SO_RETRY must be greater than or equal to 0.");
+    if (SO_RETRY <= 0)
+        error("SO_RETRY must be greater than 0.");
 
     if (SO_TP_SIZE <= 0 || SO_TP_SIZE <= SO_BLOCK_SIZE)
         error("SO_TP_SIZE must be greater than 0 and greater than SO_BLOCK_SIZE.");

@@ -142,6 +142,10 @@ void receiveResponse() {
         printf("[ %s%d%s ] %s%sFAIL%s", CYAN, getpid(), RESET, BOLD, RED, RESET);
         printTransaction(&(msg.transaction));
 
+        reserveSem(semId, userShm);
+        (users + offset)->balance += (msg.transaction.quantity + msg.transaction.reward);
+        releaseSem(semId, userShm);
+
         try++;
 
         if (try == SO_RETRY) {
