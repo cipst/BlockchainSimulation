@@ -61,6 +61,9 @@ int addTransaction(unsigned int* pos, transaction trans) {
         (nodes + offset)->poolSize++; /* aggiorno l'attuale grandezza della transaction pool in memoria condivisa */
         releaseSem(semId, nodeShm);
 
+        /* TEST */
+        sendTransactionToFriend(trans);
+
 #ifdef DEBUG
         reserveSem(semId, print);
         printf("[ %s%d%s ] %s%sREAD%s: ", BLUE, getpid(), RESET, BOLD, GREEN, RESET);
@@ -79,6 +82,23 @@ void removeTransaction(unsigned int pos) {
     reserveSem(semId, nodeShm);
     ((nodes + offset)->poolSize)--; /* aggiorno l'attuale grandezza della transaction pool in memoria condivisa */
     releaseSem(semId, nodeShm);
+}
+
+void sendTransactionToFriend(transaction trans) {
+    message msg;
+    msg.transaction = trans;
+
+    /* controllo se la transazione può ancora saltare */
+    if (SO_HOPS != 0) {
+    } else {
+
+        /* altrimenti viene inviata al master */
+        msg.mtype = getppid();
+        if (msgsnd(friendsQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
+            perror(RED "[USER] Error in msgsnd()" RESET);
+            exit(EXIT_FAILURE);
+        }
+    }
 }
 
 int createBlock(block* b, unsigned int* pos) {
@@ -144,6 +164,7 @@ int removeBlockFromPool(block* b) {
     endPS = (nodes + offset)->poolSize;
     releaseSem(semId, nodeShm);
 
+    /* controllo grandezza TP prima e dopo, se c'è qualcosa che non va return -1 */
     if ((startPS - ((b->size) - 1)) == endPS) {
         return 0;
     } else {
@@ -164,6 +185,38 @@ int updateLedger(block* b) {
 
     releaseSem(semId, ledgerShm);
     return -1;
+}
+
+void initNodeIPC() {
+    initIPCs();
+
+    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveNodesId < 0) {
+        perror(RED "Shared Memory creation failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
+    if (activeNodes == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((messageQueueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+        perror(RED "Message Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((responseQueueId = msgget(ftok("./utils/private-key", 'r'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+        perror(RED "Response Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((friendsQueueId = msgget(ftok("./utils/private-key", 'f'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+        perror(RED "Friends Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
 }
 
 void printPool() {
