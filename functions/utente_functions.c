@@ -106,10 +106,14 @@ transaction createTransaction() {
 }
 
 void sendTransaction(transaction* trans) {
-    int nodeReceiver;
+    int nodesNum, nodeReceiver;
     message msg;
 
-    nodeReceiver = (rand() % SO_NODES_NUM); /* estraggo randomicamente una posizione tra 0 e SO_NODES_NUM escluso */
+    reserveSem(semId, nodeSync);
+    nodesNum = (*activeNodes);
+    releaseSem(semId, nodeSync);
+
+    nodeReceiver = (rand() % nodesNum); /* estraggo randomicamente una posizione tra 0 e nodesNum escluso */
 
     msg.mtype = (long)((nodes + nodeReceiver)->pid);
     msg.transaction = *trans;
@@ -167,5 +171,44 @@ void receiveResponse() {
 
             exit(EXIT_FAILURE);
         }
+    }
+}
+
+void initUserIPC() {
+    initIPCs();
+
+    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveUsersId = shmget(ftok("./utils/key-private", 'a'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveUsersId < 0) {
+        perror(RED "Shared Memory creation failure Active Users" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeUsers = (int*)shmat(shmActiveUsersId, NULL, 0);
+    if (activeUsers == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Users" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveNodesId < 0) {
+        perror(RED "Shared Memory creation failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
+    if (activeNodes == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((messageQueueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+        perror(RED "Message Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((responseQueueId = msgget(ftok("./utils/private-key", 'r'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+        perror(RED "Response Queue failure" RESET);
+        exit(EXIT_FAILURE);
     }
 }
