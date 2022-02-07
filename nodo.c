@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    initIPCs('n'); /* inizializzo le risorse IPC */
+    initNodeIPC(); /* inizializzo le risorse IPC */
 
     reserveSem(semId, nodeSync);
     (*activeNodes)++;
@@ -65,11 +65,16 @@ int main(int argc, char** argv) {
 
         while (msgrcv(messageQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0) {
             if (addTransaction(&insertPos, msg.transaction) == -1) {
-                msg.mtype = (long)msg.transaction.sender;
+                /* impossibile aggiungere la transazione alla Transaction Pool di questo nodo */
+
+                /* viene inviata ad un altro nodo amico */
+                /* sendTransactionToFriend(msg.transaction); */
+
+                /* msg.mtype = (long)msg.transaction.sender;
                 if (msgsnd(responseQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
                     perror(RED "[NODE] Error in msgsnd()" RESET);
                     exit(EXIT_FAILURE);
-                }
+                } */
             }
         }
 

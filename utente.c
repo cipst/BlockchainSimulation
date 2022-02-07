@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    initIPCs('u');
+    initUserIPC();
 
     reserveSem(semId, userSync);
     (*activeUsers)++;
@@ -52,12 +52,6 @@ int main(int argc, char** argv) {
     (users + offset)->balance = SO_BUDGET_INIT; /* inizializzo il bilancio a SO_BUDGET_INIT */
     (users + offset)->alive = 0;                /* inizializzo lo stato dell'utente a VIVO */
     releaseSem(semId, userShm);
-
-#ifdef DEBUG
-    reserveSem(semId, print);
-    printf("[ %s%d%s ] BILANCIO INIZIALE: %d\n", CYAN, getpid(), RESET, (users + offset)->balance);
-    releaseSem(semId, print);
-#endif
 
     while (1) {
         reserveSem(semId, userShm); /* aggiorno il bilancio */
@@ -80,6 +74,7 @@ int main(int argc, char** argv) {
             sendTransaction(&trans);
 
             reserveSem(semId, print);
+
             printf("[ %s%d%s ] %s%sNEW%s", CYAN, getpid(), RESET, BOLD, YELLOW, RESET);
             printTransaction(&trans);
             releaseSem(semId, print);

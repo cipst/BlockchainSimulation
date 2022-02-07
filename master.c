@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    initIPCs('m'); /* inizializzo le risorse IPC */
+    initMasterIPC(); /* inizializzo le risorse IPC */
 
     if (initSemAvailable(semId, userSync) < 0) { /* semaforo per l'accesso alla memoria condivisa di sincronizzazione degli Utenti */
         perror(RED "Failed to initialize semaphore 0" RESET);
@@ -108,35 +108,7 @@ int main(int argc, char** argv) {
                 break;
 
             case 0: {
-                char* arg[8]; /* salvo le informazioni da passare al processo nodo */
-                char usersNum[12];
-                char nodesNum[12];
-                char tpSize[12];
-                char minTransProc[12];
-                char maxTransProc[12];
-                char offset[12];
-
-                sprintf(usersNum, "%d", SO_USERS_NUM);
-                sprintf(nodesNum, "%d", SO_NODES_NUM);
-                sprintf(tpSize, "%d", SO_TP_SIZE);
-                sprintf(minTransProc, "%ld", SO_MIN_TRANS_PROC_NSEC);
-                sprintf(maxTransProc, "%ld", SO_MAX_TRANS_PROC_NSEC);
-                sprintf(offset, "%d", i);
-
-                arg[0] = "nodo";
-                arg[1] = usersNum;
-                arg[2] = nodesNum;
-                arg[3] = tpSize;
-                arg[4] = minTransProc;
-                arg[5] = maxTransProc;
-                arg[6] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
-                arg[7] = NULL;
-
-                if (execv("./nodo.o", arg) < 0) {
-                    perror(RED "Failed to launch execv [NODO]" RESET);
-                    exit(EXIT_FAILURE);
-                }
-
+                createNode(i);
                 break;
             }
 
@@ -155,41 +127,7 @@ int main(int argc, char** argv) {
                 break;
 
             case 0: {
-                char* arg[10]; /* salvo le informazioni da passare al processo nodo */
-                char usersNum[12];
-                char nodesNum[12];
-                char budgetInit[12];
-                char reward[12];
-                char minTransGen[12];
-                char maxTransGen[12];
-                char retry[12];
-                char offset[12];
-
-                sprintf(usersNum, "%d", SO_USERS_NUM);
-                sprintf(nodesNum, "%d", SO_NODES_NUM);
-                sprintf(budgetInit, "%d", SO_BUDGET_INIT);
-                sprintf(reward, "%d", SO_REWARD);
-                sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
-                sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
-                sprintf(retry, "%d", SO_RETRY);
-                sprintf(offset, "%d", i);
-
-                arg[0] = "utente";
-                arg[1] = usersNum;
-                arg[2] = nodesNum;
-                arg[3] = budgetInit;
-                arg[4] = reward;
-                arg[5] = minTransGen;
-                arg[6] = maxTransGen;
-                arg[7] = retry;
-                arg[8] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
-                arg[9] = NULL;
-
-                if (execv("./utente.o", arg) < 0) {
-                    perror(RED "Failed to launch execv [UTENTE]" RESET);
-                    exit(EXIT_FAILURE);
-                }
-
+                createUser(i);
                 break;
             }
 
@@ -236,10 +174,16 @@ int main(int argc, char** argv) {
     releaseSem(semId, print);
 #endif
 
-    printf("[ %s%smaster%s ] All processes are starting...\n", BOLD, GREEN, RESET);
+    releaseSem(semId, nodeShm);
+
+    reserveSem(semId, nodeShm);
+    /* una volta creati tutti i nodi posso assegnare a loro dei nodi amici */
+    setAllFriends();
+    releaseSem(semId, nodeShm);
 
     releaseSem(semId, userShm);
-    releaseSem(semId, nodeShm);
+
+    printf("[ %s%smaster%s ] All processes are starting...\n", BOLD, GREEN, RESET);
 
     srand(time(NULL) % getpid()); /* randomize seed */
 
@@ -253,6 +197,7 @@ int main(int argc, char** argv) {
 
     while (1) {
         int k;
+        message msg;
 
         sleep(1);
 
@@ -293,6 +238,26 @@ int main(int argc, char** argv) {
         if ((rand() % 5) == 0) {
             int userOffset = (rand() % SO_USERS_NUM);
             kill((users + userOffset)->pid, SIGUSR1);
+        }
+
+        if (msgrcv(friendsQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT | MSG_NOERROR) < 0) {
+            if (errno != ENOMSG) {
+                perror(RED "[USER] Error in responseQueueId msgrcv()" RESET);
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            printf("\nQUI\n");
+
+            /* 
+            
+            IMPORTANT
+            TOFIX
+
+            createNode();
+
+            setFriends();
+
+            updateFriends(); */
         }
     }
 }
