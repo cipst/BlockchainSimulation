@@ -65,7 +65,7 @@ long SO_MIN_TRANS_PROC_NSEC; /* minimo valore del tempo simulato (espresso in na
 long SO_MAX_TRANS_PROC_NSEC; /* massimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
 int SO_BUDGET_INIT;          /* budget iniziale di ciascun processo utente */
 time_t SO_SIM_SEC;           /* durata della simulazione (in secondi) */
-int SO_FRIENDS_NUM;          /* IMPORTANTE numero di nodi amici dei processi nodo (solo per la versione full) */
+int SO_NUM_FRIENDS;          /* IMPORTANTE numero di nodi amici dei processi nodo (solo per la versione full) */
 int SO_HOPS;                 /* IMPORTANTE numero massimo di salti massimi che una transazione può effettuare quando la transaction pool di un nodo è piena (solo per la versione full) */
 
 /**
@@ -82,6 +82,7 @@ int shmActiveUsersId; /* ftok(..., 'a') => 'a': active user process */
 int shmActiveNodesId; /* ftok(..., 'g') => 'g': active node process */
 int messageQueueId;   /* ftok(..., 'q') => 'q': message queue */
 int responseQueueId;  /* ftok(..., 'r') => 'r': response queue */
+int friendsQueueId;   /* ftok(..., 'f') => 'f': friends queue */
 
 /**
  * »»»»»»»»»» STRUTTURE DATI »»»»»»»»»»
@@ -122,6 +123,8 @@ typedef struct _nodeProcess {
     pid_t pid;
     int balance;
     int poolSize;
+    pid_t* friends;
+    int friendNum;
 } nodeProcess;
 
 /* »»»»»»»»»» Messaggio »»»»»»»»»» */
@@ -156,8 +159,8 @@ void initVariable(char** argv);
 /* Gestore dei segnali */
 void hdl(int, siginfo_t*, void*);
 
-/* Inizializza tutte le struture IPC necessarie */
-void initIPCs(char);
+/* Inizializza tutte le struture IPC necessarie comuni a tutti i processi */
+void initIPCs();
 
 /** Stampa a video le informazioni di una transazione
  * 

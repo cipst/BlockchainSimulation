@@ -14,6 +14,8 @@ transaction* pool; /* transaction pool che conterrà tutte le transazioni di un 
  **/
 int addTransaction(unsigned int* pos, transaction trans);
 
+void sendTransactionToFriend(transaction);
+
 /** Aggiunge una transazione alla transaction pool
  * 
  * @param pos   posizione della transazione da eliminare dalla transaction pool
@@ -45,6 +47,9 @@ int removeBlockFromPool(block*);
  *  @return 0 se il blocco è stato aggiunto, -1 altrimenti
  */
 int updateLedger(block*);
+
+/* Inizializza tutte le struture IPC necessarie al processo nodo */
+void initNodeIPC();
 
 /* Stampa a video la transaction pool */
 void printPool();

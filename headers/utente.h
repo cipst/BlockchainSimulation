@@ -33,4 +33,7 @@ void receiveResponse();
  */
 int isAlive(int);
 
+/* Inizializza tutte le struture IPC necessarie al processo utente */
+void initUserIPC();
+
 #endif

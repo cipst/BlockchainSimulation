@@ -9,6 +9,24 @@
 * */
 void killAll(int);
 
+/** Funzione che crea un nodo in posizione pos
+ * 
+ * @param pos posizione in cui inserire il nodo
+ * */
+void createNode(int pos);
+
+/** Funzione che crea un utente in posizione pos
+ * 
+ * @param pos posizione in cui inserire l'utente
+ * */
+void createUser(int pos);
+
+/* Funzione che imposta a tutti i processi nodo un numero di amici pari ad SO_NUM_FRIENDS */
+void setAllFriends();
+
+/* Inizializza tutte le struture IPC necessarie al processo master */
+void initMasterIPC();
+
 /* Inizializza le variabili di configurazione e controlla che i valori siano corretti */
 void readConfigFile();
 
