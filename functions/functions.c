@@ -34,7 +34,7 @@ int releaseSem(int semId, int semNum) {
     return semctl(semId, semNum, IPC_RMID, arg);
 } */
 
-void initIPCs(char type) {
+void initIPCs() {
     /* »»»»»»»»»» SEMAFORI »»»»»»»»»» */
     if ((semId = semget(ftok("./utils/private-key", 's'), 6, IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
         perror(RED "Semaphore pool creation failure" RESET);
@@ -74,53 +74,6 @@ void initIPCs(char type) {
         perror(RED "Shared Memory attach failure Nodes" RESET);
         exit(EXIT_FAILURE);
     }
-
-    if (type == 'u' || type != 'n') {
-        /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
-        shmActiveUsersId = shmget(ftok("./utils/key-private", 'a'), sizeof(int), IPC_CREAT | 0644);
-        if (shmActiveUsersId < 0) {
-            perror(RED "Shared Memory creation failure Active Users" RESET);
-            exit(EXIT_FAILURE);
-        }
-
-        activeUsers = (int*)shmat(shmActiveUsersId, NULL, 0);
-        if (activeUsers == (void*)-1) {
-            perror(RED "Shared Memory attach failure Active Users" RESET);
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    if (type == 'n' || type != 'u') {
-        /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
-        shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
-        if (shmActiveNodesId < 0) {
-            perror(RED "Shared Memory creation failure Active Nodes" RESET);
-            exit(EXIT_FAILURE);
-        }
-
-        activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
-        if (activeNodes == (void*)-1) {
-            perror(RED "Shared Memory attach failure Active Nodes" RESET);
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    /* »»»»»»»»»» CODE DI MESSAGGI »»»»»»»»»» */
-    if (type == 'u' || type == 'n') {
-        /* in base al nodo estratto (nodeReceiver) scelgo la coda di messaggi di quel nodo */
-        if ((messageQueueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-            perror(RED "Message Queue failure" RESET);
-            exit(EXIT_FAILURE);
-        }
-
-        if ((responseQueueId = msgget(ftok("./utils/private-key", 'r'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-            perror(RED "Response Queue failure" RESET);
-            exit(EXIT_FAILURE);
-        }
-    }
-}
-
-void removeIPCs() {
 }
 
 void error(char* txt) {
@@ -154,21 +107,20 @@ void printLedger(ledger* l) {
 }
 
 void initVariable(char** argv) {
-    SO_USERS_NUM = atoi(argv[1]);
-    SO_NODES_NUM = atoi(argv[2]);
-
     if (strcasecmp(argv[0], "utente") == 0) { /* controllo che sia un utente */
-        SO_REWARD = atoi(argv[4]);
-        SO_MIN_TRANS_GEN_NSEC = atol(argv[5]);
-        SO_MAX_TRANS_GEN_NSEC = atol(argv[6]);
-        SO_BUDGET_INIT = atoi(argv[3]);
-        SO_RETRY = atoi(argv[7]);
-        offset = atoi(argv[8]);
+        SO_USERS_NUM = atoi(argv[1]);
+        SO_BUDGET_INIT = atoi(argv[2]);
+        SO_REWARD = atoi(argv[3]);
+        SO_MIN_TRANS_GEN_NSEC = atol(argv[4]);
+        SO_MAX_TRANS_GEN_NSEC = atol(argv[5]);
+        SO_RETRY = atoi(argv[6]);
+        offset = atoi(argv[7]);
     } else { /* altrimenti è un nodo */
-        SO_TP_SIZE = atoi(argv[3]);
-        SO_MIN_TRANS_PROC_NSEC = atol(argv[4]);
-        SO_MAX_TRANS_PROC_NSEC = atol(argv[5]);
-        offset = atoi(argv[6]);
+        SO_TP_SIZE = atoi(argv[1]);
+        SO_MIN_TRANS_PROC_NSEC = atol(argv[2]);
+        SO_MAX_TRANS_PROC_NSEC = atol(argv[3]);
+        offset = atoi(argv[4]);
+        SO_HOPS = atoi(argv[5]);
     }
 }
 
