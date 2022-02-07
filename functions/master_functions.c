@@ -133,6 +133,74 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
     }
 }
 
+void createNode(int pos) {
+    char* arg[7]; /* salvo le informazioni da passare al processo nodo */
+    /* char usersNum[12];
+    char nodesNum[12]; */
+    char tpSize[12];
+    char minTransProc[12];
+    char maxTransProc[12];
+    char offset[12];
+    char hops[12];
+
+    /* sprintf(usersNum, "%d", SO_USERS_NUM);
+    sprintf(nodesNum, "%d", SO_NODES_NUM); */
+    sprintf(tpSize, "%d", SO_TP_SIZE);
+    sprintf(minTransProc, "%ld", SO_MIN_TRANS_PROC_NSEC);
+    sprintf(maxTransProc, "%ld", SO_MAX_TRANS_PROC_NSEC);
+    sprintf(offset, "%d", pos);
+    sprintf(hops, "%d", SO_HOPS);
+
+    arg[0] = "nodo";
+    /* arg[1] = usersNum;
+    arg[2] = nodesNum; */
+    arg[1] = tpSize;
+    arg[2] = minTransProc;
+    arg[3] = maxTransProc;
+    arg[4] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
+    arg[5] = hops;
+    arg[6] = NULL;
+
+    if (execv("./nodo.o", arg) < 0) {
+        perror(RED "Failed to launch execv [NODO]" RESET);
+        exit(EXIT_FAILURE);
+    }
+}
+
+void createUser(int pos) {
+    char* arg[9]; /* salvo le informazioni da passare al processo nodo */
+    char usersNum[12];
+    char budgetInit[12];
+    char reward[12];
+    char minTransGen[12];
+    char maxTransGen[12];
+    char retry[12];
+    char offset[12];
+
+    sprintf(usersNum, "%d", SO_USERS_NUM);
+    sprintf(budgetInit, "%d", SO_BUDGET_INIT);
+    sprintf(reward, "%d", SO_REWARD);
+    sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
+    sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
+    sprintf(retry, "%d", SO_RETRY);
+    sprintf(offset, "%d", pos);
+
+    arg[0] = "utente";
+    arg[1] = usersNum;
+    arg[2] = budgetInit;
+    arg[3] = reward;
+    arg[4] = minTransGen;
+    arg[5] = maxTransGen;
+    arg[6] = retry;
+    arg[7] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
+    arg[8] = NULL;
+
+    if (execv("./utente.o", arg) < 0) {
+        perror(RED "Failed to launch execv [UTENTE]" RESET);
+        exit(EXIT_FAILURE);
+    }
+}
+
 void killAll(int sig) {
     int i;
 
@@ -159,6 +227,44 @@ void printIpcStatus() {
     printf("\t[ %s ] shmActiveUsersId: %d\n", aux, shmActiveUsersId);
     printf("\t[ %s ] shmActiveNodesId: %d\n", aux, shmActiveNodesId);
 }
+
+
+void initMasterIPC() {
+    initIPCs();
+
+    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveUsersId = shmget(ftok("./utils/key-private", 'a'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveUsersId < 0) {
+        perror(RED "Shared Memory creation failure Active Users" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeUsers = (int*)shmat(shmActiveUsersId, NULL, 0);
+    if (activeUsers == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Users" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveNodesId < 0) {
+        perror(RED "Shared Memory creation failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
+    if (activeNodes == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    /* »»»»»»»»»» CODE DI MESSAGGI »»»»»»»»»» */
+    if ((friendsQueueId = msgget(ftok("./utils/private-key", 'f'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+        perror(RED "Friends Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
+}
+
 
 void tooManyProcess(char type) {
     int i, max, min, count = 0;
@@ -227,6 +333,25 @@ void tooManyProcess(char type) {
     }
 }
 
+void setAllFriends() {
+    int i, j;
+
+    for (i = 0; i < SO_NODES_NUM; ++i) {
+        (nodes + i)->friends = (pid_t*)malloc(SO_NUM_FRIENDS * sizeof(pid_t)); /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
+        (nodes + i)->friendNum = SO_NUM_FRIENDS;                               /* salvo il numero di amici che il nodo 'i' ha, così da poter gestire il caso in cui si aggiunga un amico */
+
+        /* gli amici di un nodo 'i' sono i successivi SO_NUM_FRIENDS nodi */
+        /* rimango dentro al ciclo finchè j non raggiunge SO_NUM_FREINDS */
+        for (j = 0; j < SO_NUM_FRIENDS; ++j) {
+            (nodes + i)->friends[j] = (nodes + ((j + i + 1) % SO_NODES_NUM))->pid;
+        }
+    }
+
+    reserveSem(semId, print);
+    printf("[ %s%smaster%s ] All nodes friends setted!\n", BOLD, GREEN, RESET);
+    releaseSem(semId, print);
+}
+
 void printStats() {
     int k;
     const char aux[] = MAGENTA "STATS" RESET;
@@ -275,7 +400,7 @@ void readConfigFile() {
     fscanf(fp, "SO_MIN_TRANS_PROC_NSEC [nsec]: %ld\n", &SO_MIN_TRANS_PROC_NSEC); /* minimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
     fscanf(fp, "SO_MAX_TRANS_PROC_NSEC [nsec]: %ld\n", &SO_MAX_TRANS_PROC_NSEC); /* massimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
     fscanf(fp, "SO_SIM_SEC: %ld\n", &SO_SIM_SEC);                                /* durata della simulazione (in secondi) */
-    fscanf(fp, "SO_FRIENDS_NUM: %d\n", &SO_FRIENDS_NUM);                         /* IMPORTANT numero di nodi amici dei processi nodo (solo per la versione full) */
+    fscanf(fp, "SO_NUM_FRIENDS: %d\n", &SO_NUM_FRIENDS);                         /* IMPORTANT numero di nodi amici dei processi nodo (solo per la versione full) */
     fscanf(fp, "SO_HOPS: %d\n", &SO_HOPS);                                       /* IMPORTANT numero massimo di salti massimo che una transazione può effettuare quando la transaction pool di un nodo è piena (solo per la versione full) */
 
     fclose(fp); /* chiusura del file */
@@ -313,8 +438,8 @@ void readConfigFile() {
     if (SO_SIM_SEC <= 0)
         error("SO_SIM_SEC must be greater than 0.");
 
-    if (SO_FRIENDS_NUM < 0)
-        error("SO_FRIENDS_NUM must be greater than or equal to 0.");
+    if (SO_NUM_FRIENDS < 0 || SO_NUM_FRIENDS >= SO_NODES_NUM)
+        error("SO_NUM_FRIENDS must be greater than or equal to 0 but less than SO_NODES_NUM.");
 
     if (SO_HOPS < 0)
         error("SO_HOPS must be greater than or equal to 0.");
@@ -332,7 +457,7 @@ void printConfigVal() {
     printf("SO_MAX_TRANS_PROC_NSEC [nsec]: %ld\n", SO_MAX_TRANS_PROC_NSEC);
     printf("SO_BUDGET_INIT: %d\n", SO_BUDGET_INIT);
     printf("SO_SIM_SEC: %ld\n", SO_SIM_SEC);
-    printf("SO_FRIENDS_NUM: %d\n", SO_FRIENDS_NUM);
+    printf("SO_NUM_FRIENDS: %d\n", SO_NUM_FRIENDS);
     printf("SO_HOPS: %d\n", SO_HOPS);
     printf(" #SO_BLOCK_SIZE: %d\n", SO_BLOCK_SIZE);
     printf(" #SO_REGISTRY_SIZE: %d\n\n", SO_REGISTRY_SIZE);
