@@ -22,7 +22,8 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
             printf("\n%sSO_SIM_SEC%s expired - Termination of the simulation...\n", YELLOW, RESET);
 
-            killAll(SIGINT);
+            /* killAll(SIGINT); */
+            kill(0, SIGINT);
 
             while ((term = wait(NULL)) != -1) {
                 /* #ifdef DEBUG */
@@ -135,13 +136,10 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
 void createNode(int pos) {
     char* arg[7]; /* salvo le informazioni da passare al processo nodo */
-    /* char usersNum[12];
-    char nodesNum[12]; */
     char tpSize[12];
     char minTransProc[12];
     char maxTransProc[12];
     char offset[12];
-    char hops[12];
 
     /* sprintf(usersNum, "%d", SO_USERS_NUM);
     sprintf(nodesNum, "%d", SO_NODES_NUM); */
@@ -149,17 +147,13 @@ void createNode(int pos) {
     sprintf(minTransProc, "%ld", SO_MIN_TRANS_PROC_NSEC);
     sprintf(maxTransProc, "%ld", SO_MAX_TRANS_PROC_NSEC);
     sprintf(offset, "%d", pos);
-    sprintf(hops, "%d", SO_HOPS);
 
     arg[0] = "nodo";
-    /* arg[1] = usersNum;
-    arg[2] = nodesNum; */
     arg[1] = tpSize;
     arg[2] = minTransProc;
     arg[3] = maxTransProc;
     arg[4] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
-    arg[5] = hops;
-    arg[6] = NULL;
+    arg[5] = NULL;
 
     if (execv("./nodo.o", arg) < 0) {
         perror(RED "Failed to launch execv [NODO]" RESET);
@@ -168,7 +162,7 @@ void createNode(int pos) {
 }
 
 void createUser(int pos) {
-    char* arg[9]; /* salvo le informazioni da passare al processo nodo */
+    char* arg[10]; /* salvo le informazioni da passare al processo nodo */
     char usersNum[12];
     char budgetInit[12];
     char reward[12];
@@ -176,6 +170,7 @@ void createUser(int pos) {
     char maxTransGen[12];
     char retry[12];
     char offset[12];
+    char hops[12];
 
     sprintf(usersNum, "%d", SO_USERS_NUM);
     sprintf(budgetInit, "%d", SO_BUDGET_INIT);
@@ -184,6 +179,7 @@ void createUser(int pos) {
     sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
     sprintf(retry, "%d", SO_RETRY);
     sprintf(offset, "%d", pos);
+    sprintf(hops, "%d", SO_HOPS);
 
     arg[0] = "utente";
     arg[1] = usersNum;
@@ -193,7 +189,8 @@ void createUser(int pos) {
     arg[5] = maxTransGen;
     arg[6] = retry;
     arg[7] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
-    arg[8] = NULL;
+    arg[8] = hops;
+    arg[9] = NULL;
 
     if (execv("./utente.o", arg) < 0) {
         perror(RED "Failed to launch execv [UTENTE]" RESET);
@@ -227,7 +224,6 @@ void printIpcStatus() {
     printf("\t[ %s ] shmActiveUsersId: %d\n", aux, shmActiveUsersId);
     printf("\t[ %s ] shmActiveNodesId: %d\n", aux, shmActiveNodesId);
 }
-
 
 void initMasterIPC() {
     initIPCs();
@@ -264,7 +260,6 @@ void initMasterIPC() {
         exit(EXIT_FAILURE);
     }
 }
-
 
 void tooManyProcess(char type) {
     int i, max, min, count = 0;
@@ -337,19 +332,94 @@ void setAllFriends() {
     int i, j;
 
     for (i = 0; i < SO_NODES_NUM; ++i) {
-        (nodes + i)->friends = (pid_t*)malloc(SO_NUM_FRIENDS * sizeof(pid_t)); /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
-        (nodes + i)->friendNum = SO_NUM_FRIENDS;                               /* salvo il numero di amici che il nodo 'i' ha, così da poter gestire il caso in cui si aggiunga un amico */
+        (nodes + i)->friends = (int*)malloc(SO_NUM_FRIENDS * sizeof(int)); /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
+        (nodes + i)->friendNum = SO_NUM_FRIENDS;                           /* salvo il numero di amici che il nodo 'i' ha, così da poter gestire il caso in cui si aggiunga un amico */
 
         /* gli amici di un nodo 'i' sono i successivi SO_NUM_FRIENDS nodi */
         /* rimango dentro al ciclo finchè j non raggiunge SO_NUM_FREINDS */
         for (j = 0; j < SO_NUM_FRIENDS; ++j) {
-            (nodes + i)->friends[j] = (nodes + ((j + i + 1) % SO_NODES_NUM))->pid;
+            /* (nodes + i)->friends[j] = ((j + i + 1) % SO_NODES_NUM); */
+
+            int friendPos;
+            int found;
+
+            /* cerco una posizione casuale da inserire nella lista degli amici del nodo 'i' */
+            /* andando a controllare di non inserire la posizione del nodo stesso o di nodi già presenti nella sua lista di amici */
+            do {
+                int k;
+                found = 0;
+                friendPos = (rand() % (SO_NODES_NUM)); /* cerco una posizione tra 0 e SO_NODES_NUM - 1 così da escludere il nodo appena creato */
+                for (k = 0; found != 1 && k < (nodes + i)->friendNum; ++k) {
+                    found = ((nodes + i)->friends[k] == friendPos);
+                }
+            } while (friendPos == i || found == 1);
+
+            (nodes + i)->friends[j] = friendPos;
+
+            printf("Node %d, friend %d\n", i, friendPos);
         }
     }
 
     reserveSem(semId, print);
     printf("[ %s%smaster%s ] All nodes friends setted!\n", BOLD, GREEN, RESET);
     releaseSem(semId, print);
+}
+
+void setFriends(int pos) {
+    int j, i;
+
+    reserveSem(semId, nodeShm);
+    (nodes + pos)->friends = (int*)malloc(SO_NUM_FRIENDS * sizeof(int)); /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
+    (nodes + pos)->friendNum = SO_NUM_FRIENDS;                           /* salvo il numero di amici che il nodo 'pos' ha */
+    releaseSem(semId, nodeShm);
+
+    /* gli amici del nuovo nodo sono SO_NUM_FRIENDS nodi casuali */
+    for (j = 0; j < SO_NUM_FRIENDS; ++j) {
+        int friendPos;
+        int found;
+
+        /* cerco una posizione casuale da inserire nella lista degli amici del nuovo nodo */
+        /* andando a controllare di non inserire la posizione del nodo stesso o di nodi già presenti nella sua lista di amici */
+        do {
+            int k;
+            found = 0;
+            friendPos = (rand() % (SO_NODES_NUM - 1)); /* cerco una posizione tra 0 e SO_NODES_NUM - 1 così da escludere il nodo appena creato */
+            for (k = 0; found != 1 && k < (nodes + pos)->friendNum; ++k) {
+                found = ((nodes + pos)->friends[k] == friendPos);
+            }
+        } while (found == 1);
+
+        reserveSem(semId, nodeShm);
+        (nodes + pos)->friends[j] = friendPos;
+        releaseSem(semId, nodeShm);
+    }
+
+    reserveSem(semId, print);
+    printf("[ %s%smaster%s ] Setted all friends to new node!\n", BOLD, GREEN, RESET);
+    releaseSem(semId, print);
+
+    /* aggiorno gli altri SO_NUM_FIRENDS nodi casuali, aggiungendo il nuovo nodo */
+    for (i = 0; i < SO_NUM_FRIENDS; ++i) {
+        int* newFriends;
+        int posNode, found;
+
+        do {
+            int k;
+            found = 0;
+            posNode = (rand() % (SO_NODES_NUM - 1)); /* cerco una posizione tra 0 e SO_NODES_NUM - 1 così da escludere il nodo appena creato */
+            for (k = 0; found != 1 && k < (nodes + posNode)->friendNum; ++k) {
+                found = ((nodes + posNode)->friends[k] == pos);
+            }
+        } while (found == 1);
+
+        reserveSem(semId, nodeShm);
+        if ((newFriends = (int*)realloc((nodes + posNode)->friends, ((nodes + posNode)->friendNum + 1) * sizeof(int))) != NULL) {
+            (nodes + posNode)->friends = newFriends;
+            (nodes + posNode)->friends[(nodes + posNode)->friendNum] = pos;
+            (nodes + posNode)->friendNum++;
+        }
+        releaseSem(semId, nodeShm);
+    }
 }
 
 void printStats() {
@@ -368,8 +438,10 @@ void printStats() {
         printf("\t\t [ %s%d%s ] Balance: %d\n", CYAN, (users + k)->pid, RESET, (users + k)->balance);
 
     printf("\n\t[ %s ] Balance of every nodes and number of transactions in TP:\n", aux);
-    for (k = 0; k < SO_NODES_NUM; ++k)
-        printf("\t\t [ %s%d%s ] Balance: %d | Transactions remaining: %d/%d\n", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance, (nodes + k)->poolSize, SO_TP_SIZE);
+    for (k = 0; k < SO_NODES_NUM; ++k) {
+        printf("\t\t [ %s%d%s ] Balance: %d | Transactions remaining: %d/%d | Friends: ", BLUE, (nodes + k)->pid, RESET, (nodes + k)->balance, (nodes + k)->poolSize, SO_TP_SIZE);
+        printFriends(k);
+    }
 
     reserveSem(semId, userSync);
     printf("\n\t[ %s ] Process terminated prematurely: %d/%d\n", aux, (SO_USERS_NUM - (*activeUsers)), SO_USERS_NUM);
@@ -382,6 +454,15 @@ void printStats() {
     printf("\n");
 
     releaseSem(semId, print);
+}
+
+void printFriends(int pos) {
+    int i = 0;
+    for (i = 0; i < ((nodes + pos)->friendNum - 1); ++i) {
+        int j = (nodes + pos)->friends[i];
+        printf("%d, ", (nodes + j)->pid);
+    }
+    printf("%d \n", (nodes + ((nodes + pos)->friends[i]))->pid);
 }
 
 void readConfigFile() {
