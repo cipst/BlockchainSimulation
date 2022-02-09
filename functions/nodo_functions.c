@@ -17,6 +17,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(nodes);
             shmdt(activeNodes);
             free(pool);
+            /* free((nodes + offset)->friends); */
 
             reserveSem(semId, print);
             printf("\n\t[ %s%d%s ] %sSIGINT%s received\n", BLUE, getpid(), RESET, YELLOW, RESET);
@@ -32,6 +33,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(nodes);
             shmdt(activeNodes);
             free(pool);
+            /* free((nodes + offset)->friends); */
 
             reserveSem(semId, print);
             printf("\n\t[ %s%d%s ] %sSIGTERM%s received\n", BLUE, getpid(), RESET, YELLOW, RESET);
@@ -45,6 +47,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             shmdt(nodes);
             shmdt(activeNodes);
             free(pool);
+            /* free((nodes + offset)->friends); */
 
             error("SEGMENTATION VIOLATION [NODE]");
     }
@@ -61,8 +64,7 @@ int addTransaction(unsigned int* pos, transaction trans) {
         (nodes + offset)->poolSize++; /* aggiorno l'attuale grandezza della transaction pool in memoria condivisa */
         releaseSem(semId, nodeShm);
 
-        /* TEST */
-        sendTransactionToFriend(trans);
+        /* sendTransactionToFriend(trans); */
 
 #ifdef DEBUG
         reserveSem(semId, print);
@@ -91,7 +93,6 @@ void sendTransactionToFriend(transaction trans) {
     /* controllo se la transazione può ancora saltare */
     if (SO_HOPS != 0) {
     } else {
-
         /* altrimenti viene inviata al master */
         msg.mtype = getppid();
         if (msgsnd(friendsQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {

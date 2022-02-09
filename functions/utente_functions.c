@@ -101,6 +101,7 @@ transaction createTransaction() {
     trans.sender = getpid();
     trans.quantity = amount - nodeReward;
     trans.reward = nodeReward;
+    trans.hops = SO_HOPS;
 
     return trans;
 }
