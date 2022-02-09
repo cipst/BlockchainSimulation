@@ -83,7 +83,7 @@ void error(char* txt) {
 
 void printTransaction(transaction* t) {
     if (t->sender != -1)
-        printf("\t(%s%s%s%lu%s, %s%d%s → %s%d%s, %s%d%s$, %s%u%s$)\n", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, CYAN, t->sender, RESET, CYAN, t->receiver, RESET, GREEN, t->quantity, RESET, RED, t->reward, RESET);
+        printf("\t(%s%s%s%lu%s, %s%d%s → %s%d%s, %s%d%s$, %s%u%s$) %d hops\n", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, CYAN, t->sender, RESET, CYAN, t->receiver, RESET, GREEN, t->quantity, RESET, RED, t->reward, RESET, t->hops);
     else
         printf("\t(%s%s%s%lu%s, %s%s%d%s → %s%d%s, %s%d%s$, %u)\n\n", BOLD, YELLOW_BKG, BLUE, t->timestamp, RESET, BOLD, MAGENTA, t->sender, RESET, BLUE, t->receiver, RESET, RED, t->quantity, RESET, t->reward);
 }
@@ -115,12 +115,12 @@ void initVariable(char** argv) {
         SO_MAX_TRANS_GEN_NSEC = atol(argv[5]);
         SO_RETRY = atoi(argv[6]);
         offset = atoi(argv[7]);
+        SO_HOPS = atoi(argv[8]);
     } else { /* altrimenti è un nodo */
         SO_TP_SIZE = atoi(argv[1]);
         SO_MIN_TRANS_PROC_NSEC = atol(argv[2]);
         SO_MAX_TRANS_PROC_NSEC = atol(argv[3]);
         offset = atoi(argv[4]);
-        SO_HOPS = atoi(argv[5]);
     }
 }
 
