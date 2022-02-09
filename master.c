@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    printf("[ %s%smaster%s ] All NODE process generated. \n", BOLD, GREEN, RESET);
+    printf("[ %s%smaster%s ] All NODE processes generated. \n", BOLD, GREEN, RESET);
 
     for (i = 0; i < SO_USERS_NUM; ++i) { /* genero SO_USERS_NUM processi utente */
         switch (fork()) {
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    printf("[ %s%smaster%s ] All process generated. \n", BOLD, GREEN, RESET);
+    printf("[ %s%smaster%s ] All processes generated. \n", BOLD, GREEN, RESET);
 
 #ifdef DEBUG
     reserveSem(semId, print);
@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
         releaseSem(semId, userSync);
         releaseSem(semId, nodeSync);
 
-        sleep(1);
+        /* sleep(1); */
     }
 
 #ifdef DEBUG
@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
 #endif
 
     while (1) {
-        int k;
+        int k, z;
         message msg;
 
         sleep(1);
@@ -246,18 +246,30 @@ int main(int argc, char** argv) {
                 exit(EXIT_FAILURE);
             }
         } else {
-            printf("\nQUI\n");
+            int newPos;
 
-            /* 
+            newPos = (SO_NODES_NUM++);
+
+            /* creo il nuovo nodo */
+            switch (fork()) {
+                case -1:
+                    perror(RED "Fork: Failed to create a child process" RESET);
+                    exit(EXIT_FAILURE);
+                    break;
+
+                case 0: {
+                    createNode(newPos);
+                    break;
+                }
+
+                default:
+                    break;
+            }
+
+            /* imposto gli amici per questo nodo */
+            setFriends(newPos);
+
             
-            IMPORTANT
-            TOFIX
-
-            createNode();
-
-            setFriends();
-
-            updateFriends(); */
         }
     }
 }
