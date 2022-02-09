@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
                 /* impossibile aggiungere la transazione alla Transaction Pool di questo nodo */
 
                 /* viene inviata ad un altro nodo amico */
-                /* sendTransactionToFriend(msg.transaction); */
+                sendTransactionToFriend(msg.transaction);
 
                 /* msg.mtype = (long)msg.transaction.sender;
                 if (msgsnd(responseQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
