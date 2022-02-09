@@ -46,7 +46,7 @@
 /**
  *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»» 
  **/
-#define SO_BLOCK_SIZE 6     /* numero di transazioni massime presenti in un blocco del libro mastro */
+#define SO_BLOCK_SIZE 29     /* numero di transazioni massime presenti in un blocco del libro mastro */
 #define SO_REGISTRY_SIZE 10 /* numero di blocchi massimi presenti nel libro mastro */
 #define TOO_MANY_USERS 50
 #define TOO_MANY_NODES 50
@@ -98,6 +98,7 @@ typedef struct _transaction {
     pid_t receiver;          /* utente destinatario della somma */
     unsigned int quantity;   /* quantità di denaro inviata */
     unsigned int reward;     /* denaro pagato dal sender al nodo che processa la transazione */
+    unsigned int hops;       /* salti rimanenti che la transazione può eseguire da un nodo ad un altro */
 } transaction;
 
 typedef struct _block {
@@ -123,7 +124,7 @@ typedef struct _nodeProcess {
     pid_t pid;
     int balance;
     int poolSize;
-    pid_t* friends;
+    int* friends;
     int friendNum;
 } nodeProcess;
 

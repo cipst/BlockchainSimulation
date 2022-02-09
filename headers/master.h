@@ -24,6 +24,8 @@ void createUser(int pos);
 /* Funzione che imposta a tutti i processi nodo un numero di amici pari ad SO_NUM_FRIENDS */
 void setAllFriends();
 
+void setFriends(int pos);
+
 /* Inizializza tutte le struture IPC necessarie al processo master */
 void initMasterIPC();
 
@@ -40,6 +42,8 @@ void readConfigFile();
  *   -   Per ogni processo nodo, numero di transazioni ancora presenti nella transaction pool
  **/
 void printStats();
+
+void printFriends(int pos);
 
 /** Stampa a video gli ID degli oggetti IPC:
 *    -  semId: l'id del semaforo
