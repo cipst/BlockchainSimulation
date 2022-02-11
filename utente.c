@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    initIPCs('u');
+    initUserIPC();
 
     reserveSem(semId, userSync);
     (*activeUsers)++;

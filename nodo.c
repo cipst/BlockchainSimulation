@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    initIPCs('n'); /* inizializzo le risorse IPC */
+    initNodeIPC(); /* inizializzo le risorse IPC */
 
     reserveSem(semId, nodeSync);
     (*activeNodes)++;
@@ -65,9 +65,9 @@ int main(int argc, char** argv) {
 
         while (msgrcv(messageQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0) {
             if (addTransaction(&insertPos, msg.transaction) == -1) {
-                msg.mtype = (long)msg.transaction.sender;
+                msg.mtype = (long)msg.transaction.sender; /* prendo il PID del sender della transazione e la rispedisco */
                 if (msgsnd(responseQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
-                    perror(RED "[NODE] Error in msgsnd()" RESET);
+                    perror(RED "[NODE] Error in msgsnd() RESPONSE_QUEUE" RESET);
                     exit(EXIT_FAILURE);
                 }
             }
@@ -118,6 +118,7 @@ int main(int argc, char** argv) {
     shmdt(mastro);
     shmdt(users);
     shmdt(nodes);
+    shmdt(activeNodes);
 
     exit(EXIT_SUCCESS);
 }

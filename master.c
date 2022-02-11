@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
     /* Dico a sigaction (act) quale handler deve mandare in esecuzione */
     act.sa_sigaction = &hdl;
 
-    act.sa_flags = SA_SIGINFO | SA_NODEFER;
+    act.sa_flags = SA_SIGINFO | SA_NODEFER; /* SA_SIGINFO lo uso per sapere quale processo ha inviato il segnale */
 
     /* »»»»»»»»»» SEGNALI »»»»»»»»»» */
     if (sigaction(SIGINT, &act, NULL) < 0) {
@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    initIPCs('m'); /* inizializzo le risorse IPC */
+    initMasterIPC(); /* inizializzo le risorse IPC */
 
     if (initSemAvailable(semId, userSync) < 0) { /* semaforo per l'accesso alla memoria condivisa di sincronizzazione degli Utenti */
         perror(RED "Failed to initialize semaphore 0" RESET);
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
 
     printIpcStatus(); /* stato degli oggetti IPC */
 
-    sleep(1);
+    /* sleep(1); */
 
     reserveSem(semId, userShm);
     reserveSem(semId, nodeShm);
@@ -108,35 +108,7 @@ int main(int argc, char** argv) {
                 break;
 
             case 0: {
-                char* arg[8]; /* salvo le informazioni da passare al processo nodo */
-                char usersNum[12];
-                char nodesNum[12];
-                char tpSize[12];
-                char minTransProc[12];
-                char maxTransProc[12];
-                char offset[12];
-
-                sprintf(usersNum, "%d", SO_USERS_NUM);
-                sprintf(nodesNum, "%d", SO_NODES_NUM);
-                sprintf(tpSize, "%d", SO_TP_SIZE);
-                sprintf(minTransProc, "%ld", SO_MIN_TRANS_PROC_NSEC);
-                sprintf(maxTransProc, "%ld", SO_MAX_TRANS_PROC_NSEC);
-                sprintf(offset, "%d", i);
-
-                arg[0] = "nodo";
-                arg[1] = usersNum;
-                arg[2] = nodesNum;
-                arg[3] = tpSize;
-                arg[4] = minTransProc;
-                arg[5] = maxTransProc;
-                arg[6] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
-                arg[7] = NULL;
-
-                if (execv("./nodo.o", arg) < 0) {
-                    perror(RED "Failed to launch execv [NODO]" RESET);
-                    exit(EXIT_FAILURE);
-                }
-
+                createNode(i);
                 break;
             }
 
@@ -145,7 +117,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    printf("[ %s%smaster%s ] All NODE process generated. \n", BOLD, GREEN, RESET);
+    printf("[ %s%smaster%s ] All NODE processes generated. \n", BOLD, GREEN, RESET);
 
     for (i = 0; i < SO_USERS_NUM; ++i) { /* genero SO_USERS_NUM processi utente */
         switch (fork()) {
@@ -155,41 +127,7 @@ int main(int argc, char** argv) {
                 break;
 
             case 0: {
-                char* arg[10]; /* salvo le informazioni da passare al processo nodo */
-                char usersNum[12];
-                char nodesNum[12];
-                char budgetInit[12];
-                char reward[12];
-                char minTransGen[12];
-                char maxTransGen[12];
-                char retry[12];
-                char offset[12];
-
-                sprintf(usersNum, "%d", SO_USERS_NUM);
-                sprintf(nodesNum, "%d", SO_NODES_NUM);
-                sprintf(budgetInit, "%d", SO_BUDGET_INIT);
-                sprintf(reward, "%d", SO_REWARD);
-                sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
-                sprintf(maxTransGen, "%ld", SO_MAX_TRANS_GEN_NSEC);
-                sprintf(retry, "%d", SO_RETRY);
-                sprintf(offset, "%d", i);
-
-                arg[0] = "utente";
-                arg[1] = usersNum;
-                arg[2] = nodesNum;
-                arg[3] = budgetInit;
-                arg[4] = reward;
-                arg[5] = minTransGen;
-                arg[6] = maxTransGen;
-                arg[7] = retry;
-                arg[8] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
-                arg[9] = NULL;
-
-                if (execv("./utente.o", arg) < 0) {
-                    perror(RED "Failed to launch execv [UTENTE]" RESET);
-                    exit(EXIT_FAILURE);
-                }
-
+                createUser(i);
                 break;
             }
 
@@ -198,7 +136,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    printf("[ %s%smaster%s ] All process generated. \n", BOLD, GREEN, RESET);
+    printf("[ %s%smaster%s ] All processes generated. \n", BOLD, GREEN, RESET);
 
 #ifdef DEBUG
     reserveSem(semId, print);
@@ -221,7 +159,7 @@ int main(int argc, char** argv) {
         releaseSem(semId, userSync);
         releaseSem(semId, nodeSync);
 
-        sleep(1);
+        /* sleep(1); */
     }
 
 #ifdef DEBUG
@@ -257,9 +195,11 @@ int main(int argc, char** argv) {
         sleep(1);
 
         reserveSem(semId, print);
+        clock_gettime(CLOCK_MONOTONIC, &tp);
+        printf("\n[ %s%smaster%s ] %s%s%s TimeStats %ld %s\n", BOLD, GREEN, RESET, BOLD, GREEN_BKG, RED, ((tp.tv_sec * 1000000000) + tp.tv_nsec), RESET);
 
         reserveSem(semId, userSync);
-        printf("\n[ %s%smaster%s ] User active: %d\n", BOLD, GREEN, RESET, *activeUsers);
+        printf("[ %s%smaster%s ] User active: %d\n", BOLD, GREEN, RESET, *activeUsers);
         releaseSem(semId, userSync);
 
         reserveSem(semId, nodeSync);
@@ -268,7 +208,7 @@ int main(int argc, char** argv) {
 
         reserveSem(semId, userShm);
         if (SO_USERS_NUM > TOO_MANY_USERS) {
-            tooManyProcess('u');
+            tooManyUsers();
         } else {
             printf("[ %s%smaster%s ] Balance of every users:\n", BOLD, GREEN, RESET);
             for (k = 0; k < SO_USERS_NUM; ++k)
@@ -278,7 +218,7 @@ int main(int argc, char** argv) {
 
         reserveSem(semId, nodeShm);
         if (SO_NODES_NUM > TOO_MANY_NODES) {
-            tooManyProcess('n');
+            tooManyNodes();
         } else {
             printf("[ %s%smaster%s ] Balance of every nodes:\n", BOLD, GREEN, RESET);
             for (k = 0; k < SO_NODES_NUM; ++k)
