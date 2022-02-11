@@ -44,12 +44,12 @@
 #define specialSender (-1)
 
 /**
- *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»» 
+ *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»»
  **/
-#define SO_BLOCK_SIZE 6     /* numero di transazioni massime presenti in un blocco del libro mastro */
-#define SO_REGISTRY_SIZE 10 /* numero di blocchi massimi presenti nel libro mastro */
-#define TOO_MANY_USERS 50
-#define TOO_MANY_NODES 50
+#define SO_BLOCK_SIZE 10      /* numero di transazioni massime presenti in un blocco del libro mastro */
+#define SO_REGISTRY_SIZE 1000 /* numero di blocchi massimi presenti nel libro mastro */
+#define TOO_MANY_USERS 5      /* costante che stabilisce il numero di processi utente per cui stampare lo stato ogni secondo, se i processi sono meno verranno stampati tutti */
+#define TOO_MANY_NODES 5      /* costante che stabilisce il numero di processi nodo per cui stampare lo stato ogni secondo, se i processi sono meno verranno stampati tutti */
 
 /**
  *  »»»»»»»»»» VARIABILI di Configurazione »»»»»»»»»»
@@ -65,7 +65,7 @@ long SO_MIN_TRANS_PROC_NSEC; /* minimo valore del tempo simulato (espresso in na
 long SO_MAX_TRANS_PROC_NSEC; /* massimo valore del tempo simulato (espresso in nanosecondi) di processamento di un blocco da parte di un nodo */
 int SO_BUDGET_INIT;          /* budget iniziale di ciascun processo utente */
 time_t SO_SIM_SEC;           /* durata della simulazione (in secondi) */
-int SO_FRIENDS_NUM;          /* IMPORTANTE numero di nodi amici dei processi nodo (solo per la versione full) */
+int SO_NUM_FRIENDS;          /* IMPORTANTE numero di nodi amici dei processi nodo (solo per la versione full) */
 int SO_HOPS;                 /* IMPORTANTE numero massimo di salti massimi che una transazione può effettuare quando la transaction pool di un nodo è piena (solo per la versione full) */
 
 /**
@@ -91,6 +91,7 @@ struct sigaction act;
 struct timespec tp;
 struct timespec remaining, request;
 
+/* Transazione */
 typedef struct _transaction {
     unsigned long timestamp; /* timestamp della transazione con risoluzione dei nanosecondi */
     pid_t sender;            /* (implicito, in quanto è l’utente che ha generato la transazione) */
@@ -99,32 +100,33 @@ typedef struct _transaction {
     unsigned int reward;     /* denaro pagato dal sender al nodo che processa la transazione */
 } transaction;
 
+/* Blocco */
 typedef struct _block {
     unsigned int size;
     transaction transaction[SO_BLOCK_SIZE];
 } block;
 
-/* »»»»»»»»»» Libro Mastro »»»»»»»»»» */
+/* Libro Mastro */
 typedef struct _ledger {
     unsigned int size;
     block block[SO_REGISTRY_SIZE];
 } ledger;
 
-/* »»»»»»»»»» Processo Utente »»»»»»»»»» */
+/* Processo Utente */
 typedef struct _userProcess {
     pid_t pid;
     int balance;
     int alive;
 } userProcess;
 
-/* »»»»»»»»»» Processo Nodo »»»»»»»»»» */
+/* Processo Nodo */
 typedef struct _nodeProcess {
     pid_t pid;
     int balance;
     int poolSize;
 } nodeProcess;
 
-/* »»»»»»»»»» Messaggio »»»»»»»»»» */
+/* Messaggio */
 typedef struct _message {
     long mtype;
     transaction transaction;
@@ -142,13 +144,13 @@ transaction lastVisited; /* ultima transazione visitata per il conteggio del bil
  */
 
 /** Metodo che gestisce la stampa degli errori
-* 	
-*   @param txt Testo da stampare
-**/
+ *
+ *   @param txt Testo da stampare
+ **/
 void error(char* txt);
 
 /** Inizializza le variabili neccessarie per l'esecuzione di un Utente o di un Nodo
- *  
+ *
  * @param argv vettore di stringhe contenente i parametri da inizializzare
  **/
 void initVariable(char** argv);
@@ -157,51 +159,45 @@ void initVariable(char** argv);
 void hdl(int, siginfo_t*, void*);
 
 /* Inizializza tutte le struture IPC necessarie */
-void initIPCs(char);
+void initIPCs();
 
 /** Stampa a video le informazioni di una transazione
- * 
+ *
  * @param t Transazione
  * */
 void printTransaction(transaction* t);
 
 /** Stampa a video le informazioni di un blocco
- * 
+ *
  * @param b Blocco
  * */
 void printBlock(block* b);
 
 /** Stampa a video le informazioni del Libro Mastro
- * 
+ *
  * @param l Libro Mastro
  * */
 void printLedger(ledger* l);
 
 /** Controlla se una transazione è già stata calcolata nel bilancio in base al suo timestamp
- * 
+ *
  * @param lastVisited puntatore all'ultima transazione visitata
  * @param trans puntatore alla transazione da verificare
- * 
+ *
  * @return 0 se è già stata calcolata nel bilancio, -1 altrimenti
-  **/
+ **/
 int alreadyVisited(transaction* lastVisited, transaction* trans);
 
-/** Calcola il bilancio delle transazioni presenti nel Libro Mastro 
- * 
+/** Calcola il bilancio delle transazioni presenti nel Libro Mastro
+ *
  * @param identifier pid/ID unico per riconoscimento di utente/nodo
  * @param lastVisited puntatore all'ultima transazione visitata (già contata dal libro mastro)
- * 
+ *
  * @return il bilancio (entrate) delle transazioni che l'utente ha ricevuto
  */
 int balanceFromLedger(pid_t identifier, transaction* lastVisited);
 
 /* Aspetta un quanto di tempo random compreso tra MIN e MAX */
 void sleepTransaction(long min, long max);
-
-/** Stampa solo i processi con maggior e minor budget
- *  
- * @param type tipo di processo: 'u' -> utente; 'n' -> nodo;
- */
-void tooManyProcess(char type);
 
 #endif
