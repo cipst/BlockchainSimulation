@@ -265,69 +265,70 @@ void initMasterIPC() {
     }
 }
 
-void tooManyProcess(char type) {
+void tooManyUsers() {
     int i, max, min, count = 0;
-    if (type == 'u') {
-        max = min = users->balance; /* ipotizzo che il primo sia il max */
 
-        /* cerco il massimo e il minimo*/
-        for (i = 1; i < SO_USERS_NUM; ++i) {
-            if ((users + i)->balance > max) {
-                max = (users + i)->balance;
-            }
-            if ((users + i)->balance < min) {
-                min = (users + i)->balance;
-            }
+    max = min = users->balance; /* ipotizzo che il primo sia il max */
+
+    /* cerco il massimo e il minimo*/
+    for (i = 1; i < SO_USERS_NUM; ++i) {
+        if ((users + i)->balance > max) {
+            max = (users + i)->balance;
         }
-
-        /* stampo a video TOO_MANY_USERS/2 valori massimi */
-        printf("[ %s%smaster%s ] Balance of the most significant users:\n", BOLD, GREEN, RESET);
-        for (i = 0; count < (TOO_MANY_USERS / 2) && i < SO_USERS_NUM; ++i) {
-            if ((users + i)->balance = max) {
-                printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + i)->pid, RESET, (users + i)->balance);
-                count++;
-            }
-        }
-
-        count = 0;
-        /* stampo a video TOO_MANY_USERS/2 valori minimi */
-        for (i = 0; count < (TOO_MANY_USERS / 2) && i < SO_USERS_NUM; ++i) {
-            if ((users + i)->balance == min) {
-                printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + i)->pid, RESET, (users + i)->balance);
-                count++;
-            }
+        if ((users + i)->balance < min) {
+            min = (users + i)->balance;
         }
     }
 
-    if (type == 'n') {
-        max = min = nodes->balance; /* ipotizzo che il primo sia il max */
-
-        /* cerco il massimo e il minimo*/
-        for (i = 1; i < SO_NODES_NUM; ++i) {
-            if ((nodes + i)->balance > max) {
-                max = (nodes + i)->balance;
-            }
-            if ((nodes + i)->balance < min) {
-                min = (nodes + i)->balance;
-            }
+    /* stampo a video TOO_MANY_USERS/2 valori massimi */
+    printf("[ %s%smaster%s ] Balance of the most significant users:\n", BOLD, GREEN, RESET);
+    for (i = 0; count < (TOO_MANY_USERS / 2) && i < SO_USERS_NUM; ++i) {
+        if ((users + i)->balance = max) {
+            printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + i)->pid, RESET, (users + i)->balance);
+            count++;
         }
+    }
 
-        /* stampo a video i primi TOO_MANY_NODES valori massimi e minimi */
-        printf("[ %s%smaster%s ] Balance of the most significant nodes:\n", BOLD, GREEN, RESET);
-        for (i = 0; count < (TOO_MANY_NODES / 2) && i < SO_NODES_NUM; ++i) {
-            if ((nodes + i)->balance == max) {
-                printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + i)->pid, RESET, (nodes + i)->balance);
-                count++;
-            }
+    count = 0;
+    /* stampo a video TOO_MANY_USERS/2 valori minimi */
+    for (i = 0; count < (TOO_MANY_USERS / 2) && i < SO_USERS_NUM; ++i) {
+        if ((users + i)->balance == min) {
+            printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + i)->pid, RESET, (users + i)->balance);
+            count++;
         }
+    }
+}
 
-        count = 0;
-        /* stampo a video TOO_MANY_NODES/2 valori minimi */
-        for (i = 0; count < (TOO_MANY_NODES / 2) && i < SO_NODES_NUM; ++i) {
-            if ((nodes + i)->balance == min) {
-                printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + i)->pid, RESET, (nodes + i)->balance);
-                count++;
-            }
+void tooManyNodes() {
+    int i, max, min, count = 0;
+
+    max = min = nodes->balance; /* ipotizzo che il primo sia il max */
+
+    /* cerco il massimo e il minimo*/
+    for (i = 1; i < SO_NODES_NUM; ++i) {
+        if ((nodes + i)->balance > max) {
+            max = (nodes + i)->balance;
+        }
+        if ((nodes + i)->balance < min) {
+            min = (nodes + i)->balance;
+        }
+    }
+
+    /* stampo a video i primi TOO_MANY_NODES valori massimi e minimi */
+    printf("[ %s%smaster%s ] Balance of the most significant nodes:\n", BOLD, GREEN, RESET);
+    for (i = 0; count < (TOO_MANY_NODES / 2) && i < SO_NODES_NUM; ++i) {
+        if ((nodes + i)->balance == max) {
+            printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + i)->pid, RESET, (nodes + i)->balance);
+            count++;
+        }
+    }
+
+    count = 0;
+    /* stampo a video TOO_MANY_NODES/2 valori minimi */
+    for (i = 0; count < (TOO_MANY_NODES / 2) && i < SO_NODES_NUM; ++i) {
+        if ((nodes + i)->balance == min) {
+            printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (nodes + i)->pid, RESET, (nodes + i)->balance);
+            count++;
         }
     }
 }
