@@ -7,6 +7,7 @@
 #include <stdlib.h> /*  per la exit, malloc, free, atoi, atol, etc. */
 #include <string.h>
 #include <sys/ipc.h>    /*  per le funzioni ipc */
+#include <sys/mman.h>   /* utilizzato per ridimensionare la shared memory friends (https://linux.die.net/man/2/mremap oppure 'man 2 mremap' */
 #include <sys/msg.h>    /*  per le code di messaggi. */
 #include <sys/shm.h>    /*  per la memoria condivisa. */
 #include <sys/signal.h> /*  per gestire i segnali. signal(), kill(). */
@@ -44,10 +45,10 @@
 #define specialSender (-1)
 
 /**
- *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»» 
+ *  »»»»»»»»»» COSTANTI di Configurazione »»»»»»»»»»
  **/
-#define SO_BLOCK_SIZE 29     /* numero di transazioni massime presenti in un blocco del libro mastro */
-#define SO_REGISTRY_SIZE 10 /* numero di blocchi massimi presenti nel libro mastro */
+#define SO_BLOCK_SIZE 4     /* numero di transazioni massime presenti in un blocco del libro mastro */
+#define SO_REGISTRY_SIZE 20 /* numero di blocchi massimi presenti nel libro mastro */
 #define TOO_MANY_USERS 50
 #define TOO_MANY_NODES 50
 
@@ -78,6 +79,7 @@ int semId;            /* ftok(..., 's') => 's': semaphore */
 int shmLedgerId;      /* ftok(..., 'l') => 'l': ledger */
 int shmUsersId;       /* ftok(..., 'u') => 'u': users */
 int shmNodesId;       /* ftok(..., 'n') => 'n': nodes */
+int shmFriendsId;     /* ftok(..., 'z') => 'z': friends */
 int shmActiveUsersId; /* ftok(..., 'a') => 'a': active user process */
 int shmActiveNodesId; /* ftok(..., 'g') => 'g': active node process */
 int messageQueueId;   /* ftok(..., 'q') => 'q': message queue */
@@ -146,13 +148,13 @@ transaction lastVisited; /* ultima transazione visitata per il conteggio del bil
  */
 
 /** Metodo che gestisce la stampa degli errori
-* 	
-*   @param txt Testo da stampare
-**/
+ *
+ *   @param txt Testo da stampare
+ **/
 void error(char* txt);
 
 /** Inizializza le variabili neccessarie per l'esecuzione di un Utente o di un Nodo
- *  
+ *
  * @param argv vettore di stringhe contenente i parametri da inizializzare
  **/
 void initVariable(char** argv);
@@ -164,37 +166,37 @@ void hdl(int, siginfo_t*, void*);
 void initIPCs();
 
 /** Stampa a video le informazioni di una transazione
- * 
+ *
  * @param t Transazione
  * */
 void printTransaction(transaction* t);
 
 /** Stampa a video le informazioni di un blocco
- * 
+ *
  * @param b Blocco
  * */
 void printBlock(block* b);
 
 /** Stampa a video le informazioni del Libro Mastro
- * 
+ *
  * @param l Libro Mastro
  * */
 void printLedger(ledger* l);
 
 /** Controlla se una transazione è già stata calcolata nel bilancio in base al suo timestamp
- * 
+ *
  * @param lastVisited puntatore all'ultima transazione visitata
  * @param trans puntatore alla transazione da verificare
- * 
+ *
  * @return 0 se è già stata calcolata nel bilancio, -1 altrimenti
-  **/
+ **/
 int alreadyVisited(transaction* lastVisited, transaction* trans);
 
-/** Calcola il bilancio delle transazioni presenti nel Libro Mastro 
- * 
+/** Calcola il bilancio delle transazioni presenti nel Libro Mastro
+ *
  * @param identifier pid/ID unico per riconoscimento di utente/nodo
  * @param lastVisited puntatore all'ultima transazione visitata (già contata dal libro mastro)
- * 
+ *
  * @return il bilancio (entrate) delle transazioni che l'utente ha ricevuto
  */
 int balanceFromLedger(pid_t identifier, transaction* lastVisited);
@@ -203,7 +205,7 @@ int balanceFromLedger(pid_t identifier, transaction* lastVisited);
 void sleepTransaction(long min, long max);
 
 /** Stampa solo i processi con maggior e minor budget
- *  
+ *
  * @param type tipo di processo: 'u' -> utente; 'n' -> nodo;
  */
 void tooManyProcess(char type);

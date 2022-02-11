@@ -2,16 +2,16 @@
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /** Segnali gestiti:
-    *  	-	SIGINT
-    *  	-	SIGTERM
-    *  	-	SIGSEGV
-    *   -   SIGUSR1 (crea una nuova transazione)
-    **/
+     *  	-	SIGINT
+     *  	-	SIGTERM
+     *  	-	SIGSEGV
+     *   -   SIGUSR1 (crea una nuova transazione)
+     **/
 
     switch (sig) {
         case SIGINT:
-            (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
-            releaseSem(semId, userShm);
+            /* (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
+            releaseSem(semId, userShm); */
 
             shmdt(mastro);
             shmdt(users);
@@ -120,7 +120,7 @@ void sendTransaction(transaction* trans) {
     msg.transaction = *trans;
 
     if (msgsnd(messageQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
-        perror(RED "[USER] Error in msgsnd()" RESET);
+        perror(RED "[USER] Error in msgsnd() SEND_TRANSACTION" RESET);
         kill(getppid(), SIGUSR1);
         exit(EXIT_FAILURE);
     }
@@ -138,7 +138,7 @@ void receiveResponse() {
 
     if (msgrcv(responseQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT | MSG_NOERROR) < 0) {
         if (errno != ENOMSG) {
-            perror(RED "[USER] Error in responseQueueId msgrcv()" RESET);
+            perror(RED "[USER] Error in responseQueueId msgrcv() RECEIVE_RESPONSE" RESET);
             exit(EXIT_FAILURE);
         } else {
             try = 0;

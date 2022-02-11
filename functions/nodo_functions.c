@@ -2,15 +2,15 @@
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /**
-	 * 	Questo è l'handler dei segnali, gestisce i segnali:
-	 *  	-	SIGINT
-	 *  	-	SIGTERM
-	 *  	-	SIGSEGV
-	 **/
+     * 	Questo è l'handler dei segnali, gestisce i segnali:
+     *  	-	SIGINT
+     *  	-	SIGTERM
+     *  	-	SIGSEGV
+     **/
     switch (sig) {
         case SIGINT:
-            (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
-            releaseSem(semId, nodeShm);
+            /* (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
+            releaseSem(semId, nodeShm); */
 
             shmdt(mastro);
             shmdt(users);
@@ -88,17 +88,40 @@ void removeTransaction(unsigned int pos) {
 
 void sendTransactionToFriend(transaction trans) {
     message msg;
-    msg.transaction = trans;
 
     /* controllo se la transazione può ancora saltare */
-    if (SO_HOPS != 0) {
+    if (trans.hops != 0) {
+        /* se può saltare allora la invio ad un amico */
+        int nodeFriend, posFriend, test;
+
+        reserveSem(semId, nodeShm);
+
+        nodeFriend = (rand() % ((nodes + offset)->friendNum)); /* cerco una posizione tra 0 e il numero di amici del nodo */
+
+        printf("NODE FRIEND: %d\n", nodeFriend);
+        printf("FIRST FRIEND: %d\n", nodes[offset].friends[0]);
+
+        posFriend = (nodes + offset)->friends[nodeFriend];
+
+        printf("POS FRIEND: %d\n", posFriend);
+
+        msg.mtype = (long)(nodes + posFriend)->pid;
+        releaseSem(semId, nodeShm);
+
+        printf("SENDED TO %d\n", (nodes + posFriend)->pid);
+
+        trans.hops--;
+
     } else {
         /* altrimenti viene inviata al master */
         msg.mtype = getppid();
-        if (msgsnd(friendsQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
-            perror(RED "[USER] Error in msgsnd()" RESET);
-            exit(EXIT_FAILURE);
-        }
+    }
+
+    msg.transaction = trans;
+
+    if (msgsnd(friendsQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
+        perror(RED "[NODE] Error in msgsnd() SEND_TRANSACTION_TO_FRIEND" RESET);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -201,6 +224,13 @@ void initNodeIPC() {
     activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
     if (activeNodes == (void*)-1) {
         perror(RED "Shared Memory attach failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    shmFriendsId = shmget(ftok("./utils/private-key", 'z'), sizeof(int) * SO_NUM_FRIENDS, IPC_CREAT | 0644);
+    (nodes + offset)->friends = (int*)shmat(shmFriendsId, NULL, 0);
+    if ((nodes + offset)->friends == (void*)-1) {
+        perror(RED "Shared Memory attach failure Friends Node" RESET);
         exit(EXIT_FAILURE);
     }
 
