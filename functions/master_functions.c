@@ -2,37 +2,21 @@
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /**
-	 * 	Questo è l'handler dei segnali, gestisce i segnali:
-	 * 		-	SIGALRM
-	 *  	-	SIGINT
-	 *  	-	SIGTERM
-	 *  	-	SIGSEGV
+     * 	Questo è l'handler dei segnali, gestisce i segnali:
+     * 		-	SIGALRM
+     *  	-	SIGINT
+     *  	-	SIGTERM
+     *  	-	SIGSEGV
      *      -   SIGUSR1
      *      -   SIGUSR2
-	 **/
+     **/
 
+    int count = 0;
     switch (sig) {
-        pid_t term;
-
         case SIGALRM:
-            /* if (sigaction(SIGALRM, &act, NULL) < 0) {
-                perror(RED "Sigaction: Failed to assign SIGALRM to custom handler" RESET);
-                exit(EXIT_FAILURE);
-            } */
-
             printf("\n%sSO_SIM_SEC%s expired - Termination of the simulation...\n", YELLOW, RESET);
 
-            /* killAll(SIGINT); */
-            kill(0, SIGINT);
-
-            while ((term = wait(NULL)) != -1) {
-                /* #ifdef DEBUG */
-                reserveSem(semId, print);
-                fflush(stdout);
-                printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
-                releaseSem(semId, print);
-                /* #endif */
-            }
+            killAll(SIGINT);
 
             printStats();
 
@@ -46,13 +30,12 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_SUCCESS);
 
         case SIGINT:
+        case SIGTERM:
 #ifdef DEBUG
             printf("\n[ %sSIGINT%s ] %d sended SIGINT\n", YELLOW, RESET, siginfo->si_pid);
 #endif
 
-            signal(SIGINT, SIG_IGN);
-            kill(0, SIGINT);
-            sigaction(SIGINT, &act, NULL);
+            killAll(SIGINT);
 
             printStats();
 
@@ -65,10 +48,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             system("./ipcrm.sh");
             printf("[ %sSIGINT%s ] Simulation interrupted\n", YELLOW, RESET);
             exit(EXIT_SUCCESS);
-
-        case SIGTERM:
-            kill(0, SIGINT);
-            break;
 
         case SIGSEGV:
             printf("\n[ %sSIGSEGV%s ] Simulation interrupted due to SIGSEGV\n", RED, RESET);
@@ -92,8 +71,11 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
             if ((*activeUsers) == 0) { /* tutti gli utenti hanno terminato la loro esecuzione */
                 printf("\n[ %s%smaster%s ] All users ended. %sEnd of the simulation...%s", BOLD, GREEN, RESET, YELLOW, RESET);
-                printStats();
+
                 killAll(SIGINT);
+
+                printStats();
+
                 shmdt(mastro);
                 shmdt(users);
                 shmdt(nodes);
@@ -111,15 +93,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             releaseSem(semId, print);
 
             killAll(SIGINT);
-
-            while ((term = wait(NULL)) != -1) {
-                /* #ifdef DEBUG */
-                reserveSem(semId, print);
-                fflush(stdout);
-                printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
-                releaseSem(semId, print);
-                /* #endif */
-            }
 
             printStats();
 
@@ -200,6 +173,7 @@ void createUser(int pos) {
 
 void killAll(int sig) {
     int i;
+    pid_t term;
 
     for (i = 0; i < SO_USERS_NUM; i++) {
         if ((users + i)->pid != 0) {
@@ -212,6 +186,15 @@ void killAll(int sig) {
             kill((nodes + i)->pid, sig);
         }
     }
+
+    while ((term = wait(NULL)) != -1) {
+        /* #ifdef DEBUG */
+        reserveSem(semId, print);
+        fflush(stdout);
+        printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
+        releaseSem(semId, print);
+        /* #endif */
+    }
 }
 
 void printIpcStatus() {
@@ -221,6 +204,7 @@ void printIpcStatus() {
     printf("\t[ %s ] shmLedgerId: %d\n", aux, shmLedgerId);
     printf("\t[ %s ] shmUsersId: %d\n", aux, shmUsersId);
     printf("\t[ %s ] shmNodesId: %d\n", aux, shmNodesId);
+    printf("\t[ %s ] shmFriendsId: %d\n", aux, shmFriendsId);
     printf("\t[ %s ] shmActiveUsersId: %d\n", aux, shmActiveUsersId);
     printf("\t[ %s ] shmActiveNodesId: %d\n", aux, shmActiveNodesId);
 }
@@ -254,8 +238,10 @@ void initMasterIPC() {
         exit(EXIT_FAILURE);
     }
 
+    shmFriendsId = shmget(ftok("./utils/private-key", 'z'), sizeof(int) * SO_NUM_FRIENDS, IPC_CREAT | 0644);
+
     /* »»»»»»»»»» CODE DI MESSAGGI »»»»»»»»»» */
-    if ((friendsQueueId = msgget(ftok("./utils/private-key", 'f'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
+    if ((friendsQueueId = msgget(ftok("./utils/private-key", 'f'), IPC_CREAT | 0644)) < 0) {
         perror(RED "Friends Queue failure" RESET);
         exit(EXIT_FAILURE);
     }
@@ -332,14 +318,18 @@ void setAllFriends() {
     int i, j;
 
     for (i = 0; i < SO_NODES_NUM; ++i) {
-        (nodes + i)->friends = (int*)malloc(SO_NUM_FRIENDS * sizeof(int)); /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
-        (nodes + i)->friendNum = SO_NUM_FRIENDS;                           /* salvo il numero di amici che il nodo 'i' ha, così da poter gestire il caso in cui si aggiunga un amico */
+        /* (nodes + i)->friends = (int*)malloc(SO_NUM_FRIENDS * sizeof(int)); */ /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
 
-        /* gli amici di un nodo 'i' sono i successivi SO_NUM_FRIENDS nodi */
-        /* rimango dentro al ciclo finchè j non raggiunge SO_NUM_FREINDS */
+        nodes[i].friends = (int*)shmat(shmFriendsId, NULL, 0);
+        if (nodes[i].friends == (void*)-1) {
+            perror(RED "Shared Memory attach failure Friends Node" RESET);
+            exit(EXIT_FAILURE);
+        }
+
+        (nodes + i)->friendNum = SO_NUM_FRIENDS; /* salvo il numero di amici che il nodo 'i' ha, così da poter gestire il caso in cui si aggiunga un amico */
+
+        /* gli amici di un nodo 'i' sono SO_NUM_FRIENDS nodi casuali */
         for (j = 0; j < SO_NUM_FRIENDS; ++j) {
-            /* (nodes + i)->friends[j] = ((j + i + 1) % SO_NODES_NUM); */
-
             int friendPos;
             int found;
 
@@ -348,16 +338,21 @@ void setAllFriends() {
             do {
                 int k;
                 found = 0;
-                friendPos = (rand() % (SO_NODES_NUM)); /* cerco una posizione tra 0 e SO_NODES_NUM - 1 così da escludere il nodo appena creato */
-                for (k = 0; found != 1 && k < (nodes + i)->friendNum; ++k) {
-                    found = ((nodes + i)->friends[k] == friendPos);
+                friendPos = (rand() % (SO_NODES_NUM)); /* cerco una posizione tra 0 e SO_NODES_NUM */
+                printf("FRIEND POS MASTER : %d\n", friendPos);
+                printf("i : %d\n", i);
+                if (friendPos != i) {
+                    for (k = 0; found != 1 && k < (nodes + i)->friendNum; ++k) {
+                        found = (nodes[i].friends[k] == friendPos);
+                        printf("NODES[i].FRIENDS[k] %d\n", nodes[i].friends[k]);
+                    }
                 }
             } while (friendPos == i || found == 1);
 
-            (nodes + i)->friends[j] = friendPos;
-
-            printf("Node %d, friend %d\n", i, friendPos);
+            nodes[i].friends[j] = friendPos; /* aggiungo la posizione del nodo amico */
         }
+        printf("FRIENDS OF %d: ", i);
+        printFriends(i);
     }
 
     reserveSem(semId, print);
@@ -369,8 +364,15 @@ void setFriends(int pos) {
     int j, i;
 
     reserveSem(semId, nodeShm);
-    (nodes + pos)->friends = (int*)malloc(SO_NUM_FRIENDS * sizeof(int)); /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
-    (nodes + pos)->friendNum = SO_NUM_FRIENDS;                           /* salvo il numero di amici che il nodo 'pos' ha */
+    /* (nodes + pos)->friends = (int*)malloc(SO_NUM_FRIENDS * sizeof(int)); */ /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
+
+    (nodes + pos)->friends = (int*)shmat(shmFriendsId, NULL, 0);
+    if ((nodes + i)->friends == (void*)-1) {
+        perror(RED "Shared Memory attach failure Friends Node" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    (nodes + pos)->friendNum = SO_NUM_FRIENDS; /* salvo il numero di amici che il nodo 'pos' ha */
     releaseSem(semId, nodeShm);
 
     /* gli amici del nuovo nodo sono SO_NUM_FRIENDS nodi casuali */
@@ -402,6 +404,7 @@ void setFriends(int pos) {
     for (i = 0; i < SO_NUM_FRIENDS; ++i) {
         int* newFriends;
         int posNode, found;
+        size_t oldSize, newSize;
 
         do {
             int k;
@@ -413,13 +416,26 @@ void setFriends(int pos) {
         } while (found == 1);
 
         reserveSem(semId, nodeShm);
-        if ((newFriends = (int*)realloc((nodes + posNode)->friends, ((nodes + posNode)->friendNum + 1) * sizeof(int))) != NULL) {
+        oldSize = sizeof(int) * (nodes + posNode)->friendNum;
+        newSize = sizeof(int) * ((nodes + posNode)->friendNum + 1);
+
+        /* espande il blocco di memoria virtuale
+            tramite MREMAP_MAYMOVE se non c'è sufficiente spazio per espandere la memoria, verrà riallocato su un nuovo indirizzo virtuale */
+        newFriends = (int*)mremap((nodes + posNode)->friends, oldSize, newSize, MREMAP_MAYMOVE);
+        if (newFriends != MAP_FAILED) {
             (nodes + posNode)->friends = newFriends;
             (nodes + posNode)->friends[(nodes + posNode)->friendNum] = pos;
             (nodes + posNode)->friendNum++;
+        } else {
+            perror(RED "Shared Memory Remapo failure" RESET);
+            exit(EXIT_FAILURE);
         }
         releaseSem(semId, nodeShm);
     }
+
+    reserveSem(semId, print);
+    printf("[ %s%smaster%s ] Updated friends list of %d random nodes!\n", BOLD, GREEN, RESET, SO_NUM_FRIENDS);
+    releaseSem(semId, print);
 }
 
 void printStats() {
@@ -459,10 +475,10 @@ void printStats() {
 void printFriends(int pos) {
     int i = 0;
     for (i = 0; i < ((nodes + pos)->friendNum - 1); ++i) {
-        int j = (nodes + pos)->friends[i];
+        int j = nodes[pos].friends[i];
         printf("%d, ", (nodes + j)->pid);
     }
-    printf("%d \n", (nodes + ((nodes + pos)->friends[i]))->pid);
+    printf("%d \n", (nodes + (nodes[pos].friends[i]))->pid);
 }
 
 void readConfigFile() {
