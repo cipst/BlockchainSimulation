@@ -2,16 +2,16 @@
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /** Segnali gestiti:
-    *  	-	SIGINT
-    *  	-	SIGTERM
-    *  	-	SIGSEGV
-    *   -   SIGUSR1 (crea una nuova transazione)
-    **/
+     *  	-	SIGINT
+     *  	-	SIGTERM
+     *  	-	SIGSEGV
+     *      -   SIGUSR1 (crea una nuova transazione)
+     **/
 
     switch (sig) {
         case SIGINT:
-            (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
-            releaseSem(semId, userShm);
+            /* (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
+            releaseSem(semId, userShm); */
 
             shmdt(mastro);
             shmdt(users);
@@ -25,8 +25,8 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_FAILURE);
 
         case SIGTERM:
-            (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
-            releaseSem(semId, userShm);
+            /* (users + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
+            releaseSem(semId, userShm); */
 
             shmdt(mastro);
             shmdt(users);
@@ -69,6 +69,45 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
     }
 }
 
+void initUserIPC() {
+    initIPCs();
+
+    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveUsersId = shmget(ftok("./utils/key-private", 'a'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveUsersId < 0) {
+        perror(RED "Shared Memory creation failure Active Users" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeUsers = (int*)shmat(shmActiveUsersId, NULL, 0);
+    if (activeUsers == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Users" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveNodesId < 0) {
+        perror(RED "Shared Memory creation failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
+    if (activeNodes == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((messageQueueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0644)) < 0) {
+        perror(RED "Message Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((responseQueueId = msgget(ftok("./utils/private-key", 'r'), IPC_CREAT | 0644)) < 0) {
+        perror(RED "Response Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
+}
+
 int isAlive(int offset) {
     int isAlive;
 
@@ -88,7 +127,7 @@ transaction createTransaction() {
     } while (userReceiver == offset || isAlive(userReceiver) == -1); /* cerco la posizione random finché non è diversa dalla posizione dell'utente corrente e finchè non trovo un utente ancora vivo */
 
     reserveSem(semId, userShm);
-    amount = (rand() % (((users + offset)->balance) - 1)) + 2; /* quantità da inviare: estraggo un numero compreso tra 2 e balance ==> estraggo un numero compreso tra 0 e balance-1 escluso ==> tra 0 e balance-2 e sommo 2 */
+    amount = (rand() % (((users + offset)->balance) - 1)) + 2; /* quantità da inviare: estraggo un numero compreso tra 2 e balance escluso ==> estraggo un numero compreso tra 0 e balance-1 escluso ==> tra 0 e balance-2 e sommo 2 */
 
     trans.receiver = (users + userReceiver)->pid; /* imposto il destinatario della transazione */
     releaseSem(semId, userShm);

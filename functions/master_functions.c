@@ -2,36 +2,20 @@
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /**
-	 * 	Questo è l'handler dei segnali, gestisce i segnali:
-	 * 		-	SIGALRM
-	 *  	-	SIGINT
-	 *  	-	SIGTERM
-	 *  	-	SIGSEGV
+     * 	Questo è l'handler dei segnali, gestisce i segnali:
+     * 		-	SIGALRM
+     *  	-	SIGINT
+     *  	-	SIGTERM
+     *  	-	SIGSEGV
      *      -   SIGUSR1
      *      -   SIGUSR2
-	 **/
+     **/
 
     switch (sig) {
-        pid_t term;
-
         case SIGALRM:
-            /* if (sigaction(SIGALRM, &act, NULL) < 0) {
-                perror(RED "Sigaction: Failed to assign SIGALRM to custom handler" RESET);
-                exit(EXIT_FAILURE);
-            } */
-
             printf("\n%sSO_SIM_SEC%s expired - Termination of the simulation...\n", YELLOW, RESET);
 
             killAll(SIGINT);
-
-            while ((term = wait(NULL)) != -1) {
-                /* #ifdef DEBUG */
-                reserveSem(semId, print);
-                fflush(stdout);
-                printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
-                releaseSem(semId, print);
-                /* #endif */
-            }
 
             printStats();
 
@@ -49,9 +33,7 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             printf("\n[ %sSIGINT%s ] %d sended SIGINT\n", YELLOW, RESET, siginfo->si_pid);
 #endif
 
-            signal(SIGINT, SIG_IGN);
-            kill(0, SIGINT);
-            sigaction(SIGINT, &act, NULL);
+            killAll(SIGINT);
 
             printStats();
 
@@ -66,12 +48,33 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_SUCCESS);
 
         case SIGTERM:
-            kill(0, SIGINT);
-            break;
+            killAll(SIGINT);
+
+            printStats();
+
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeUsers);
+            shmdt(activeNodes);
+
+            system("./ipcrm.sh");
+            printf("[ %sSIGTERM%s ] Simulation interrupted\n", YELLOW, RESET);
+            exit(EXIT_SUCCESS);
 
         case SIGSEGV:
-            printf("\n[ %sSIGSEGV%s ] Simulation interrupted due to SIGSEGV\n", RED, RESET);
             killAll(SIGINT);
+
+            printStats();
+
+            shmdt(mastro);
+            shmdt(users);
+            shmdt(nodes);
+            shmdt(activeUsers);
+            shmdt(activeNodes);
+
+            system("./ipcrm.sh");
+            printf("\n[ %sSIGSEGV%s ] Simulation interrupted due to SIGSEGV\n", RED, RESET);
             exit(EXIT_FAILURE);
 
         case SIGUSR1: /* i processi utente utilizzano SIGUSR1 per notificare al master che sono terminati prematuramente */
@@ -91,8 +94,11 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
             if ((*activeUsers) == 0) { /* tutti gli utenti hanno terminato la loro esecuzione */
                 printf("\n[ %s%smaster%s ] All users ended. %sEnd of the simulation...%s", BOLD, GREEN, RESET, YELLOW, RESET);
-                printStats();
+
                 killAll(SIGINT);
+
+                printStats();
+
                 shmdt(mastro);
                 shmdt(users);
                 shmdt(nodes);
@@ -111,15 +117,6 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 
             killAll(SIGINT);
 
-            while ((term = wait(NULL)) != -1) {
-                /* #ifdef DEBUG */
-                reserveSem(semId, print);
-                fflush(stdout);
-                printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
-                releaseSem(semId, print);
-                /* #endif */
-            }
-
             printStats();
 
             shmdt(mastro);
@@ -134,32 +131,29 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
 }
 
 void createNode(int pos) {
-    char* arg[7]; /* salvo le informazioni da passare al processo nodo */
-    /* char usersNum[12];
-    char nodesNum[12]; */
+    char* arg[8]; /* salvo le informazioni da passare al processo nodo */
+    char usersNum[12];
+    char nodesNum[12];
     char tpSize[12];
     char minTransProc[12];
     char maxTransProc[12];
     char offset[12];
-    char hops[12];
 
-    /* sprintf(usersNum, "%d", SO_USERS_NUM);
-    sprintf(nodesNum, "%d", SO_NODES_NUM); */
+    sprintf(usersNum, "%d", SO_USERS_NUM);
+    sprintf(nodesNum, "%d", SO_NODES_NUM);
     sprintf(tpSize, "%d", SO_TP_SIZE);
     sprintf(minTransProc, "%ld", SO_MIN_TRANS_PROC_NSEC);
     sprintf(maxTransProc, "%ld", SO_MAX_TRANS_PROC_NSEC);
     sprintf(offset, "%d", pos);
-    sprintf(hops, "%d", SO_HOPS);
 
     arg[0] = "nodo";
-    /* arg[1] = usersNum;
-    arg[2] = nodesNum; */
-    arg[1] = tpSize;
-    arg[2] = minTransProc;
-    arg[3] = maxTransProc;
-    arg[4] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
-    arg[5] = hops;
-    arg[6] = NULL;
+    arg[1] = usersNum;
+    arg[2] = nodesNum;
+    arg[3] = tpSize;
+    arg[4] = minTransProc;
+    arg[5] = maxTransProc;
+    arg[6] = offset; /* offset per la memoria condivisa 'nodes', ogni nodo è a conoscenza della sua posizione in 'nodes' */
+    arg[7] = NULL;
 
     if (execv("./nodo.o", arg) < 0) {
         perror(RED "Failed to launch execv [NODO]" RESET);
@@ -168,8 +162,9 @@ void createNode(int pos) {
 }
 
 void createUser(int pos) {
-    char* arg[9]; /* salvo le informazioni da passare al processo nodo */
+    char* arg[10]; /* salvo le informazioni da passare al processo nodo */
     char usersNum[12];
+    char nodesNum[12];
     char budgetInit[12];
     char reward[12];
     char minTransGen[12];
@@ -178,6 +173,7 @@ void createUser(int pos) {
     char offset[12];
 
     sprintf(usersNum, "%d", SO_USERS_NUM);
+    sprintf(nodesNum, "%d", SO_NODES_NUM);
     sprintf(budgetInit, "%d", SO_BUDGET_INIT);
     sprintf(reward, "%d", SO_REWARD);
     sprintf(minTransGen, "%ld", SO_MIN_TRANS_GEN_NSEC);
@@ -187,13 +183,14 @@ void createUser(int pos) {
 
     arg[0] = "utente";
     arg[1] = usersNum;
-    arg[2] = budgetInit;
-    arg[3] = reward;
-    arg[4] = minTransGen;
-    arg[5] = maxTransGen;
-    arg[6] = retry;
-    arg[7] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
-    arg[8] = NULL;
+    arg[2] = nodesNum;
+    arg[3] = budgetInit;
+    arg[4] = reward;
+    arg[5] = minTransGen;
+    arg[6] = maxTransGen;
+    arg[7] = retry;
+    arg[8] = offset; /* offset per la memoria condivisa 'users', ogni utente è a conoscenza della sua posizione in 'users' */
+    arg[9] = NULL;
 
     if (execv("./utente.o", arg) < 0) {
         perror(RED "Failed to launch execv [UTENTE]" RESET);
@@ -203,6 +200,7 @@ void createUser(int pos) {
 
 void killAll(int sig) {
     int i;
+    pid_t term;
 
     for (i = 0; i < SO_USERS_NUM; i++) {
         if ((users + i)->pid != 0) {
@@ -214,6 +212,15 @@ void killAll(int sig) {
         if ((nodes + i)->pid != 0) {
             kill((nodes + i)->pid, sig);
         }
+    }
+
+    while ((term = wait(NULL)) != -1) {
+        /* #ifdef DEBUG */
+        reserveSem(semId, print);
+        fflush(stdout);
+        printf("%d %s%sENDED%s!\n", term, BOLD, RED, RESET);
+        releaseSem(semId, print);
+        /* #endif */
     }
 }
 
@@ -227,7 +234,6 @@ void printIpcStatus() {
     printf("\t[ %s ] shmActiveUsersId: %d\n", aux, shmActiveUsersId);
     printf("\t[ %s ] shmActiveNodesId: %d\n", aux, shmActiveNodesId);
 }
-
 
 void initMasterIPC() {
     initIPCs();
@@ -257,14 +263,7 @@ void initMasterIPC() {
         perror(RED "Shared Memory attach failure Active Nodes" RESET);
         exit(EXIT_FAILURE);
     }
-
-    /* »»»»»»»»»» CODE DI MESSAGGI »»»»»»»»»» */
-    if ((friendsQueueId = msgget(ftok("./utils/private-key", 'f'), IPC_CREAT | 0400 | 0200 | 040 | 020)) < 0) {
-        perror(RED "Friends Queue failure" RESET);
-        exit(EXIT_FAILURE);
-    }
 }
-
 
 void tooManyProcess(char type) {
     int i, max, min, count = 0;
@@ -331,25 +330,6 @@ void tooManyProcess(char type) {
             }
         }
     }
-}
-
-void setAllFriends() {
-    int i, j;
-
-    for (i = 0; i < SO_NODES_NUM; ++i) {
-        (nodes + i)->friends = (pid_t*)malloc(SO_NUM_FRIENDS * sizeof(pid_t)); /* alloco lo spazio in memoria necessario per la memorizzazione di SO_NUM_FRIENDS pid di nodi amici */
-        (nodes + i)->friendNum = SO_NUM_FRIENDS;                               /* salvo il numero di amici che il nodo 'i' ha, così da poter gestire il caso in cui si aggiunga un amico */
-
-        /* gli amici di un nodo 'i' sono i successivi SO_NUM_FRIENDS nodi */
-        /* rimango dentro al ciclo finchè j non raggiunge SO_NUM_FREINDS */
-        for (j = 0; j < SO_NUM_FRIENDS; ++j) {
-            (nodes + i)->friends[j] = (nodes + ((j + i + 1) % SO_NODES_NUM))->pid;
-        }
-    }
-
-    reserveSem(semId, print);
-    printf("[ %s%smaster%s ] All nodes friends setted!\n", BOLD, GREEN, RESET);
-    releaseSem(semId, print);
 }
 
 void printStats() {

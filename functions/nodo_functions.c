@@ -2,15 +2,15 @@
 
 void hdl(int sig, siginfo_t* siginfo, void* context) {
     /**
-	 * 	Questo è l'handler dei segnali, gestisce i segnali:
-	 *  	-	SIGINT
-	 *  	-	SIGTERM
-	 *  	-	SIGSEGV
-	 **/
+     * 	Questo è l'handler dei segnali, gestisce i segnali:
+     *  	-	SIGINT
+     *  	-	SIGTERM
+     *  	-	SIGSEGV
+     **/
     switch (sig) {
         case SIGINT:
-            (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
-            releaseSem(semId, nodeShm);
+            /* (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
+            releaseSem(semId, nodeShm); */
 
             shmdt(mastro);
             shmdt(users);
@@ -24,8 +24,8 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             exit(EXIT_SUCCESS);
 
         case SIGTERM:
-            (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
-            releaseSem(semId, nodeShm);
+            /* (nodes + offset)->balance += balanceFromLedger(getpid(), &lastVisited);
+            releaseSem(semId, nodeShm); */
 
             shmdt(mastro);
             shmdt(users);
@@ -47,6 +47,33 @@ void hdl(int sig, siginfo_t* siginfo, void* context) {
             free(pool);
 
             error("SEGMENTATION VIOLATION [NODE]");
+    }
+}
+
+void initNodeIPC() {
+    initIPCs();
+
+    /* per sincronizzare i processi alla creazione iniziale, e dare loro il via con le operazioni */
+    shmActiveNodesId = shmget(ftok("./utils/private-key", 'g'), sizeof(int), IPC_CREAT | 0644);
+    if (shmActiveNodesId < 0) {
+        perror(RED "Shared Memory creation failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    activeNodes = (int*)shmat(shmActiveNodesId, NULL, 0);
+    if (activeNodes == (void*)-1) {
+        perror(RED "Shared Memory attach failure Active Nodes" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((messageQueueId = msgget(ftok("./utils/private-key", 'q'), IPC_CREAT | 0644)) < 0) {
+        perror(RED "Message Queue failure" RESET);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((responseQueueId = msgget(ftok("./utils/private-key", 'r'), IPC_CREAT | 0644)) < 0) {
+        perror(RED "Response Queue failure" RESET);
+        exit(EXIT_FAILURE);
     }
 }
 
