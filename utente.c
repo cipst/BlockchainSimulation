@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
         releaseSem(semId, print);
 #endif
 
-        receiveResponse();
+        /* receiveResponse(); */
 
         if (((users + offset)->balance) >= 2) {
             transaction trans;

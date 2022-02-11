@@ -4,7 +4,7 @@
 
 block b; /* blocco candidato */
 
-int i, j;
+int i, j, period = 0;
 unsigned int insertPos = 0;
 unsigned int removePos = 0;
 
@@ -63,21 +63,29 @@ int main(int argc, char** argv) {
         ((nodes + offset)->balance) += balanceFromLedger(getpid(), &lastVisited);
         releaseSem(semId, nodeShm);
 
-        while (msgrcv(messageQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0) {
+        /* controllo sulla coda degli amici */
+        if (msgrcv(friendsQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0) {
             if (addTransaction(&insertPos, msg.transaction) == -1) {
                 /* impossibile aggiungere la transazione alla Transaction Pool di questo nodo */
 
                 /* viene inviata ad un altro nodo amico */
                 sendTransactionToFriend(msg.transaction);
-
-                /* msg.mtype = (long)msg.transaction.sender;
-                if (msgsnd(responseQueueId, &msg, sizeof(msg) - sizeof(long), IPC_NOWAIT) < 0) {
-                    perror(RED "[NODE] Error in msgsnd()" RESET);
-                    exit(EXIT_FAILURE);
-                } */
             }
         }
 
+        /* controllo sulla coda dei messaggi */
+        while ((msgrcv(messageQueueId, &msg, sizeof(msg) - sizeof(long), getpid(), IPC_NOWAIT) >= 0)) {
+            if (addTransaction(&insertPos, msg.transaction) == -1) {
+                /* impossibile aggiungere la transazione alla Transaction Pool di questo nodo */
+
+                /* viene inviata ad un altro nodo amico */
+                sendTransactionToFriend(msg.transaction);
+            }
+            /* viene inviata ad un altro nodo amico */
+            /* sendTransactionToFriend(msg.transaction); */
+        }
+
+        /* creo il blocco candidato */
         if (createBlock(&b, &removePos) == 0) {
             reserveSem(semId, print);
             printf("\n[ %s%d%s ] %s%sNEW BLOCK%s\n", BLUE, getpid(), RESET, BOLD, GREEN, RESET);
@@ -87,6 +95,7 @@ int main(int argc, char** argv) {
 
             /* sleep(1); */
             sleepTransaction(SO_MIN_TRANS_PROC_NSEC, SO_MAX_TRANS_PROC_NSEC);
+            period++;
 
             if (updateLedger(&b) == 0) {
                 reserveSem(semId, print);
@@ -117,6 +126,28 @@ int main(int argc, char** argv) {
                 releaseSem(semId, print);
                 kill(getppid(), SIGUSR2); /* informo il master che il Libro Mastro è pieno */
             }
+        }
+
+        /* periodicamente seleziono una transazione da inviare ad un nodo amico
+            ogni volta che period è un multiplo di 2 (cioè che si sono creati 'multipli di due' blocchi candidati)
+            ed è presente una transazione in posizione removePos, la invio e la rimuovo dalla TP */
+        if ((period % 2) == 0 && (pool + removePos)->timestamp != 0) {
+            reserveSem(semId, print);
+            printf("NODE %d\tremovePos:%u\n", getpid(), removePos);
+            releaseSem(semId, print);
+
+            printTransaction((pool + removePos));
+            printPool();
+
+            sendTransactionToFriend(*(pool + removePos)); /* seleziono la transazione da inviare, che si trova in removePos all'interno della TP */
+            removeTransaction(removePos);                 /* la rimuovo dalla TP */
+            removePos = (removePos + 1) % SO_TP_SIZE;     /* aggiorno il valore di removePos (adesso la transazione da rimuovere è quella successiva a quella appena rimossa) */
+
+            printPool();
+
+            reserveSem(semId, print);
+            printf("NODE %d\tremovePos:%u\n", getpid(), removePos);
+            releaseSem(semId, print);
         }
     }
 

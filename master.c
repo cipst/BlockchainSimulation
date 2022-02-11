@@ -174,14 +174,11 @@ int main(int argc, char** argv) {
     releaseSem(semId, print);
 #endif
 
-    releaseSem(semId, nodeShm);
-
-    reserveSem(semId, nodeShm);
     /* una volta creati tutti i nodi posso assegnare a loro dei nodi amici */
     setAllFriends();
-    releaseSem(semId, nodeShm);
 
-    releaseSem(semId, userShm);
+    releaseSem(semId, nodeShm); /* faccio partire i nodi */
+    releaseSem(semId, userShm); /* faccio partire gli utenti */
 
     printf("[ %s%smaster%s ] All processes are starting...\n", BOLD, GREEN, RESET);
 
@@ -247,6 +244,7 @@ int main(int argc, char** argv) {
             }
         } else {
             int newPos;
+            message friendMsg;
 
             newPos = (SO_NODES_NUM++);
 
@@ -268,8 +266,13 @@ int main(int argc, char** argv) {
 
             /* imposto gli amici per questo nodo */
             setFriends(newPos);
-
-            
+            /*
+                        friendMsg.transaction = msg.transaction;
+                        friendMsg.mtype = (nodes + newPos)->pid;
+                        if (msgsnd(friendsQueueId, &friendMsg, sizeof(friendMsg) - sizeof(long), IPC_NOWAIT) < 0) {
+                            perror(RED "[MASTER] Error in msgsnd()" RESET);
+                            exit(EXIT_FAILURE);
+                        } */
         }
     }
 }
