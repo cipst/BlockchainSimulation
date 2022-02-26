@@ -48,8 +48,8 @@
  **/
 #define SO_BLOCK_SIZE 10      /* numero di transazioni massime presenti in un blocco del libro mastro */
 #define SO_REGISTRY_SIZE 1000 /* numero di blocchi massimi presenti nel libro mastro */
-#define TOO_MANY_USERS 5      /* costante che stabilisce il numero di processi utente per cui stampare lo stato ogni secondo, se i processi sono meno verranno stampati tutti */
-#define TOO_MANY_NODES 5      /* costante che stabilisce il numero di processi nodo per cui stampare lo stato ogni secondo, se i processi sono meno verranno stampati tutti */
+#define TOO_MANY_USERS 6      /* costante che stabilisce il numero di processi utente per cui stampare lo stato ogni secondo, se i processi sono meno verranno stampati tutti */
+#define TOO_MANY_NODES 6      /* costante che stabilisce il numero di processi nodo per cui stampare lo stato ogni secondo, se i processi sono meno verranno stampati tutti */
 
 /**
  *  »»»»»»»»»» VARIABILI di Configurazione »»»»»»»»»»

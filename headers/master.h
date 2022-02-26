@@ -26,17 +26,18 @@ void killAll(int);
  *    -  shmLedgerId: l'id dell'area di shared memory dedicata al libro mastro (creata con shmget)
  *    -  shmUsersId: l'id dell'area di shared memory dedicata ai processi Utente (creata con shmget)
  *    -  shmNodesId: l'id dell'area di shared memory dedicata ai processi Nodo (creata con shmget)
- *    -  shmActiveUsersId: l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi
+ *    -  shmActiveUsersId: l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi Utente
+ *    -  shmActiveNodesId: l'id dell'area di shared memory usata dal gestore per sincronizzare l'avvio di tutti i processi Nodo
  **/
 void printIpcStatus();
 
 /* Inizializza le strutture IPC necessarie al processo master */
 void initMasterIPC();
 
-/* Stampa solo i processi Utente con maggior e minor budget */
+/* Stampa solo i primi TOO_MANY_USERS processi Utente con maggior e minor budget */
 void tooManyUsers();
 
-/* Stampa solo i processi Nodo con maggior e minor budget */
+/* Stampa solo i primi TOO_MANY_NODES processi Nodo con maggior e minor budget */
 void tooManyNodes();
 
 /** Stampa tutte le informazioni ritenute utili prima della terminazione del programma

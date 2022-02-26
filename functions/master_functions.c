@@ -283,7 +283,7 @@ void tooManyUsers() {
     /* stampo a video TOO_MANY_USERS/2 valori massimi */
     printf("[ %s%smaster%s ] Balance of the most significant users:\n", BOLD, GREEN, RESET);
     for (i = 0; count < (TOO_MANY_USERS / 2) && i < SO_USERS_NUM; ++i) {
-        if ((users + i)->balance = max) {
+        if ((users + i)->balance == max) {
             printf("\t [ %s%d%s ] Balance: %d\n", CYAN, (users + i)->pid, RESET, (users + i)->balance);
             count++;
         }
@@ -392,8 +392,8 @@ void readConfigFile() {
     if (SO_NODES_NUM <= 0)
         error("SO_NODES_NUM must be greater than 0.");
 
-    if (SO_REWARD <= 0 || SO_REWARD >= 100)
-        error("SO_REWARD must be greater than 0, but less than 100.");
+    if (SO_REWARD < 0 || SO_REWARD > 100)
+        error("SO_REWARD must be greater than or equal to 0, but less than or equal to 100.");
 
     if (SO_MIN_TRANS_GEN_NSEC < 0)
         error("SO_MIN_TRANS_GEN_NSEC must be greater than or equal to 0.");

@@ -32,17 +32,17 @@ nodo: nodo.c ${H} ${NODE_H} ${FUNC} ${NODE_FUNC}
 	$(CC) ${CFLAGS} ${FUNC} ${NODE_FUNC} nodo.c -o nodo.o
 
 
-## Rimuove tutti gli eseguibili
+## Rimuove tutti i .o
 clean : clean-master clean-utente clean-nodo
 
-## Rimuove solo il MASTER
+## Rimuove solo il MASTER.o
 clean-master :
 	rm -f master.o
 
-## Rimuove solo UTENTE
+## Rimuove solo UTENTE.o
 clean-utente :
 	rm -f utente.o
 
-## rimuve solo NODO
+## rimuve solo NODO.o
 clean-nodo :
 	rm -f nodo.o
